@@ -440,6 +440,10 @@ pub struct PutPublicDataResponse {
     /// Which payment mode was actually used ("auto", "merkle", or "single").
     #[prost(string, tag = "4")]
     pub payment_mode_used: ::prost::alloc::string::String,
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+    /// tools outside Autonomi can check (V2-1564).
+    #[prost(string, tag = "5")]
+    pub sha256: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamPublicDataRequest {
@@ -553,6 +557,10 @@ pub struct PutDataResponse {
     /// Which payment mode was actually used ("auto", "merkle", or "single").
     #[prost(string, tag = "4")]
     pub payment_mode_used: ::prost::alloc::string::String,
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+    /// tools outside Autonomi can check (V2-1564).
+    #[prost(string, tag = "5")]
+    pub sha256: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataCostRequest {
@@ -1970,6 +1978,10 @@ pub struct PutFilePublicResponse {
     /// Which payment mode was actually used ("auto", "merkle", or "single").
     #[prost(string, tag = "6")]
     pub payment_mode_used: ::prost::alloc::string::String,
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+    /// tools outside Autonomi can check (V2-1564).
+    #[prost(string, tag = "7")]
+    pub sha256: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PutFileResponse {
@@ -1989,6 +2001,10 @@ pub struct PutFileResponse {
     /// Which payment mode was actually used ("auto", "merkle", or "single").
     #[prost(string, tag = "5")]
     pub payment_mode_used: ::prost::alloc::string::String,
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+    /// tools outside Autonomi can check (V2-1564).
+    #[prost(string, tag = "6")]
+    pub sha256: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetFilePublicRequest {
@@ -2804,6 +2820,10 @@ pub struct FinalizeUploadResponse {
     /// Number of chunks stored on the network.
     #[prost(uint64, tag = "4")]
     pub chunks_stored: u64,
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+    /// tools outside Autonomi can check (V2-1564).
+    #[prost(string, tag = "5")]
+    pub sha256: ::prost::alloc::string::String,
 }
 /// Generated client implementations.
 pub mod upload_service_client {
@@ -5797,6 +5817,11 @@ pub struct ManifestEntryInput {
     /// recorded; readers take the exact size from an embedded root DataMap.
     #[prost(uint64, optional, tag = "2")]
     pub size: ::core::option::Option<u64>,
+    /// SHA-256 of the plaintext to record, hex (the creator's claim). Unset or
+    /// empty: none is recorded. `ant manifest download` checks downloads against
+    /// it.
+    #[prost(string, optional, tag = "5")]
+    pub sha256: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(oneof = "manifest_entry_input::Source", tags = "3, 4")]
     pub source: ::core::option::Option<manifest_entry_input::Source>,
 }
@@ -5856,6 +5881,10 @@ pub struct ManifestEntryInfo {
     /// Why `resolve` failed for this entry. Empty when it didn't.
     #[prost(string, tag = "8")]
     pub error: ::prost::alloc::string::String,
+    /// The SHA-256 recorded in the manifest, hex: the creator's claim. Empty
+    /// when there is none.
+    #[prost(string, tag = "9")]
+    pub sha256: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BuildManifestResponse {

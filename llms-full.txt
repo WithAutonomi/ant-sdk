@@ -557,11 +557,12 @@ Request:
   "embed_roots": true,
   "torrent_info_hashes": [],
   "entries": [
-    {"path": "photos/a.jpg", "data_map": "<hex>", "size": 123},
+    {"path": "photos/a.jpg", "data_map": "<hex>", "size": 123, "sha256": "<hex>"},
     {"path": "readme.txt", "address": "<64 hex>"}
   ]
 }
 ```
+
 Response (`manifest` is the base64 of the raw `.ant` bytes):
 ```json
 {
@@ -569,7 +570,8 @@ Response (`manifest` is the base64 of the raw `.ant` bytes):
   "link": "ant://manifest/...",
   "entries": [
     {"effective_name": "photos/a.jpg", "path": "photos/a.jpg", "size": 123,
-     "kind": "embedded", "content_address": "<64 hex>", "exact_size": 123},
+     "sha256": "<hex>", "kind": "embedded", "content_address": "<64 hex>",
+     "exact_size": 123},
     {"effective_name": "readme.txt", "path": "readme.txt",
      "kind": "public", "content_address": "<64 hex>"}
   ]
@@ -583,6 +585,8 @@ Response (`manifest` is the base64 of the raw `.ant` bytes):
   unknown (an embedded root DataMap carries it, so embedded entries have it
   after `embed_roots`), `path` when there is none. Never `0` for unset: `0` is
   an empty file.
+- `sha256` (optional, hex) is recorded as given; pass the `sha256` an upload
+  returned, and `ant manifest download` checks the file against it.
 - `content_address` is the file's public DataMap address, the same for a private
   and a public upload of one file.
 

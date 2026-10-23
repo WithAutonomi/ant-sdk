@@ -151,6 +151,7 @@ defmodule Antd.V1.FinalizeUploadResponse do
   field :address, 2, type: :string
   field :data_map_address, 3, type: :string, json_name: "dataMapAddress"
   field :chunks_stored, 4, type: :uint64, json_name: "chunksStored"
+  field :sha256, 5, type: :string
 end
 
 defmodule Antd.V1.UploadService.Service do

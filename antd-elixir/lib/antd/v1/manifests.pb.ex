@@ -10,6 +10,7 @@ defmodule Antd.V1.ManifestEntryInput do
 
   field :path, 1, proto3_optional: true, type: :string
   field :size, 2, proto3_optional: true, type: :uint64
+  field :sha256, 5, proto3_optional: true, type: :string
   field :data_map, 3, type: :string, json_name: "dataMap", oneof: 0
   field :address, 4, type: :string, oneof: 0
 end
@@ -44,6 +45,7 @@ defmodule Antd.V1.ManifestEntryInfo do
   field :data_map, 6, type: :string, json_name: "dataMap"
   field :exact_size, 7, proto3_optional: true, type: :uint64, json_name: "exactSize"
   field :error, 8, type: :string
+  field :sha256, 9, type: :string
 end
 
 defmodule Antd.V1.BuildManifestResponse do

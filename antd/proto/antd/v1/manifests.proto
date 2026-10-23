@@ -32,6 +32,10 @@ message ManifestEntryInput {
   // Plaintext size to record, as given (the creator's claim). Unset: none is
   // recorded; readers take the exact size from an embedded root DataMap.
   optional uint64 size = 2;
+  // SHA-256 of the plaintext to record, hex (the creator's claim). Unset or
+  // empty: none is recorded. `ant manifest download` checks downloads against
+  // it.
+  optional string sha256 = 5;
   oneof source {
     // Hex DataMap, in the form the upload routes return. Embedded.
     string data_map = 3;
@@ -71,6 +75,9 @@ message ManifestEntryInfo {
   optional uint64 exact_size = 7;
   // Why `resolve` failed for this entry. Empty when it didn't.
   string error = 8;
+  // The SHA-256 recorded in the manifest, hex: the creator's claim. Empty
+  // when there is none.
+  string sha256 = 9;
 }
 
 message BuildManifestResponse {

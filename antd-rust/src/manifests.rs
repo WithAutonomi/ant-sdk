@@ -49,6 +49,11 @@ pub struct ManifestEntryInput {
     /// none is recorded; readers take the exact size from an embedded root
     /// DataMap.
     pub size: Option<u64>,
+    /// The plaintext SHA-256 to record, hex (the creator's claim): pass the
+    /// `sha256` an upload returned. `None`: none is recorded. `ant manifest
+    /// download` checks each file against it. Requires antd 0.17.0 or later;
+    /// older daemons ignore it.
+    pub sha256: Option<String>,
     /// A hex DataMap, as the upload methods return it. The entry embeds it:
     /// the manifest is the key to the file.
     pub data_map: Option<String>,
@@ -84,6 +89,12 @@ impl ManifestEntryInput {
         self.size = Some(size);
         self
     }
+
+    /// Sets the plaintext SHA-256 (hex) to record.
+    pub fn with_sha256(mut self, sha256: impl Into<String>) -> Self {
+        self.sha256 = Some(sha256.into());
+        self
+    }
 }
 
 /// The optional parts of a build. The default embeds roots, as the daemon
@@ -111,6 +122,9 @@ pub struct ManifestEntryInfo {
     /// The size recorded in the manifest: the creator's claim. `None` when
     /// none was recorded (never `Some(0)` for "unset").
     pub size: Option<u64>,
+    /// The SHA-256 recorded in the manifest, hex: the creator's claim. `None`
+    /// when none was recorded, or from a daemon older than 0.17.0.
+    pub sha256: Option<String>,
     /// `"embedded"` or `"public"`.
     pub kind: String,
     /// Hex. The file's public DataMap address, whether or not it was ever made
@@ -227,6 +241,8 @@ struct WireEntryInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    sha256: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     data_map: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     address: Option<&'a str>,
@@ -268,6 +284,8 @@ struct WireEntryInfo {
     #[serde(default)]
     size: Option<u64>,
     #[serde(default)]
+    sha256: Option<String>,
+    #[serde(default)]
     kind: String,
     #[serde(default)]
     content_address: String,
@@ -285,6 +303,7 @@ impl From<WireEntryInfo> for ManifestEntryInfo {
             effective_name: e.effective_name,
             path: non_empty(e.path),
             size: e.size,
+            sha256: non_empty(e.sha256),
             kind: e.kind,
             content_address: e.content_address,
             data_map: non_empty(e.data_map),
@@ -343,6 +362,7 @@ impl Client {
                 .map(|e| WireEntryInput {
                     path: given(&e.path),
                     size: e.size,
+                    sha256: given(&e.sha256),
                     data_map: given(&e.data_map),
                     address: given(&e.address),
                 })
@@ -432,6 +452,7 @@ fn entry_info_from_pb(e: pb::ManifestEntryInfo) -> ManifestEntryInfo {
         path: non_empty(e.path),
         // proto3 `optional`: presence, not the zero value, says it is set.
         size: e.size,
+        sha256: non_empty(Some(e.sha256)),
         kind: e.kind,
         content_address: e.content_address,
         data_map: non_empty(Some(e.data_map)),
@@ -478,6 +499,7 @@ impl GrpcClient {
                 .map(|e| pb::ManifestEntryInput {
                     path: given(&e.path).map(str::to_string),
                     size: e.size,
+                    sha256: given(&e.sha256).map(str::to_string),
                     source: Some(match (given(&e.data_map), given(&e.address)) {
                         (Some(data_map), _) => Source::DataMap(data_map.to_string()),
                         (None, address) => Source::Address(address.unwrap_or_default().to_string()),

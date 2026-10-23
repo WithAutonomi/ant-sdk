@@ -107,13 +107,15 @@ class FinalizeUploadRequest(_message.Message):
     def __init__(self, upload_id: _Optional[str] = ..., tx_hashes: _Optional[_Mapping[str, str]] = ..., winner_pool_hash: _Optional[str] = ..., winner_pool_hashes: _Optional[_Iterable[str]] = ..., store_data_map: bool = ...) -> None: ...
 
 class FinalizeUploadResponse(_message.Message):
-    __slots__ = ("data_map", "address", "data_map_address", "chunks_stored")
+    __slots__ = ("data_map", "address", "data_map_address", "chunks_stored", "sha256")
     DATA_MAP_FIELD_NUMBER: _ClassVar[int]
     ADDRESS_FIELD_NUMBER: _ClassVar[int]
     DATA_MAP_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     CHUNKS_STORED_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
     data_map: str
     address: str
     data_map_address: str
     chunks_stored: int
-    def __init__(self, data_map: _Optional[str] = ..., address: _Optional[str] = ..., data_map_address: _Optional[str] = ..., chunks_stored: _Optional[int] = ...) -> None: ...
+    sha256: str
+    def __init__(self, data_map: _Optional[str] = ..., address: _Optional[str] = ..., data_map_address: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., sha256: _Optional[str] = ...) -> None: ...

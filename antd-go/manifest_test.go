@@ -77,6 +77,65 @@ func TestBuildManifest(t *testing.T) {
 	}
 }
 
+func TestRestFilePutReportsSha256(t *testing.T) {
+	srv := mockDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	put, err := c.FilePut(context.Background(), "/tmp/f", PaymentModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := c.FilePutPublic(context.Background(), "/tmp/f", PaymentModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if put.Sha256 != "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6" || pub.Sha256 != "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6" {
+		t.Fatalf("sha256 did not come through: %q %q", put.Sha256, pub.Sha256)
+	}
+}
+
+func TestManifestSha256GoesOutAndComesBack(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch r.URL.Path {
+		case "/v1/manifests/build":
+			entries := body["entries"].([]any)
+			if entries[0].(map[string]any)["sha256"] != "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6" {
+				t.Fatalf("sha256 not sent: %+v", entries[0])
+			}
+			if _, ok := entries[1].(map[string]any)["sha256"]; ok {
+				t.Fatalf("empty sha256 must be omitted: %+v", entries[1])
+			}
+			_, _ = io.WriteString(w, `{"manifest": "wUFOVAE=", "entries": [
+				{"effective_name": "a", "path": "a", "kind": "public", "content_address": "11", "sha256": "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6"}]}`)
+		case "/v1/manifests/decode":
+			_, _ = io.WriteString(w, `{"source": "manifest", "entries": [
+				{"effective_name": "a", "path": "a", "kind": "public", "content_address": "11", "sha256": "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6"},
+				{"effective_name": "b", "path": "b", "kind": "public", "content_address": "22"}]}`)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	b, err := c.BuildManifest(context.Background(), []ManifestEntryInput{
+		{Path: "a", Address: "11", Sha256: "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6"},
+		{Path: "b", Address: "22"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Entries[0].Sha256 != "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6" {
+		t.Fatalf("build entry sha256: %+v", b.Entries[0])
+	}
+	d, err := c.DecodeManifest(context.Background(), manifestHeader, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Entries[0].Sha256 != "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6" || d.Entries[1].Sha256 != "" {
+		t.Fatalf("decode sha256: %+v", d.Entries)
+	}
+}
+
 func TestBuildManifestDefaultsEmbedRoots(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -267,7 +326,7 @@ func (m *mockManifestService) Build(_ context.Context, req *pb.BuildManifestRequ
 	if first.GetPath() != "a.txt" || first.GetDataMap() != "abcd" || first.Size == nil || first.GetSize() != 10 {
 		return nil, errors.New("unexpected first entry")
 	}
-	if second.Path != nil || second.GetAddress() != "11" || second.Size != nil {
+	if second.Path != nil || second.GetAddress() != "11" || second.Size != nil || second.Sha256 != nil {
 		return nil, errors.New("unexpected second entry")
 	}
 	ten := uint64(10)
@@ -276,7 +335,7 @@ func (m *mockManifestService) Build(_ context.Context, req *pb.BuildManifestRequ
 		Manifest: manifestHeader,
 		Link:     "ant://manifest/wUFOVAE",
 		Entries: []*pb.ManifestEntryInfo{
-			{EffectiveName: "a.txt", Path: &path, Size: &ten, Kind: "embedded", ContentAddress: "cc", ExactSize: &ten},
+			{EffectiveName: "a.txt", Path: &path, Size: &ten, Kind: "embedded", ContentAddress: "cc", ExactSize: &ten, Sha256: first.GetSha256()},
 			{EffectiveName: "11", Kind: "public", ContentAddress: "11"},
 		},
 	}, nil
@@ -307,11 +366,14 @@ func (m *mockManifestService) Decode(_ context.Context, req *pb.DecodeManifestRe
 func TestGrpcBuildManifest(t *testing.T) {
 	c := startMockServer(t)
 	res, err := c.BuildManifest(context.Background(), []ManifestEntryInput{
-		{Path: "a.txt", Size: u64(10), DataMap: "abcd"},
+		{Path: "a.txt", Size: u64(10), DataMap: "abcd", Sha256: "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6"},
 		{Address: "11"},
 	}, &BuildManifestOptions{Name: "album"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if res.Entries[0].Sha256 != "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6" || res.Entries[1].Sha256 != "" {
+		t.Fatalf("sha256 did not round-trip over gRPC: %+v", res.Entries)
 	}
 	if string(res.Manifest) != string(manifestHeader) || res.Link == "" || len(res.Entries) != 2 {
 		t.Fatalf("unexpected result: %+v", res)

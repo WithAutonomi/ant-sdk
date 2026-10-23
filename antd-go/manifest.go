@@ -28,6 +28,10 @@ type ManifestEntryInput struct {
 	// Nil: none is recorded; readers take the exact size from an embedded
 	// root DataMap.
 	Size *uint64
+	// Sha256 is the plaintext's SHA-256 to record, hex (the creator's claim),
+	// e.g. the Sha256 an upload method returned. Empty: none is recorded.
+	// `ant manifest download` checks downloads against it.
+	Sha256 string
 	// DataMap is a hex DataMap, as the upload methods return it. The entry
 	// embeds it: the manifest is the key to the file.
 	DataMap string
@@ -56,6 +60,9 @@ type ManifestEntryInfo struct {
 	Path          string
 	// Size is the size recorded in the manifest: the creator's claim.
 	Size *uint64
+	// Sha256 is the SHA-256 recorded in the manifest, hex: the creator's
+	// claim. Empty when there is none.
+	Sha256 string
 	// Kind is "embedded" or "public".
 	Kind string
 	// ContentAddress (hex) is the file's public DataMap address, whether or
@@ -160,6 +167,9 @@ func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput
 		if e.Size != nil {
 			m["size"] = *e.Size
 		}
+		if e.Sha256 != "" {
+			m["sha256"] = e.Sha256
+		}
 		if e.DataMap != "" {
 			m["data_map"] = e.DataMap
 		} else {
@@ -251,6 +261,7 @@ func parseManifestEntries(raw []any) []ManifestEntryInfo {
 			EffectiveName:  str(m, "effective_name"),
 			Path:           str(m, "path"),
 			Size:           optUint64(m, "size"),
+			Sha256:         str(m, "sha256"),
 			Kind:           str(m, "kind"),
 			ContentAddress: str(m, "content_address"),
 			DataMap:        str(m, "data_map"),
@@ -283,6 +294,10 @@ func (c *GrpcClient) BuildManifest(ctx context.Context, entries []ManifestEntryI
 	}
 	for _, e := range entries {
 		in := &pb.ManifestEntryInput{Size: e.Size}
+		if e.Sha256 != "" {
+			sha256 := e.Sha256
+			in.Sha256 = &sha256
+		}
 		if e.Path != "" {
 			path := e.Path
 			in.Path = &path
@@ -359,6 +374,7 @@ func fromPbManifestEntries(entries []*pb.ManifestEntryInfo) []ManifestEntryInfo 
 			EffectiveName:  e.GetEffectiveName(),
 			Path:           e.GetPath(),
 			Size:           e.Size,
+			Sha256:         e.GetSha256(),
 			Kind:           e.GetKind(),
 			ContentAddress: e.GetContentAddress(),
 			DataMap:        e.GetDataMap(),

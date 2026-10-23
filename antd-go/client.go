@@ -329,6 +329,7 @@ func (c *Client) DataPut(ctx context.Context, data []byte, paymentMode PaymentMo
 	}
 	return &DataPutResult{
 		DataMap:         str(j, "data_map"),
+		Sha256:          str(j, "sha256"),
 		ChunksStored:    unum64(j, "chunks_stored"),
 		PaymentModeUsed: str(j, "payment_mode_used"),
 	}, nil
@@ -358,6 +359,7 @@ func (c *Client) DataPutPublic(ctx context.Context, data []byte, paymentMode Pay
 	}
 	return &DataPutPublicResult{
 		Address:         str(j, "address"),
+		Sha256:          str(j, "sha256"),
 		ChunksStored:    unum64(j, "chunks_stored"),
 		PaymentModeUsed: str(j, "payment_mode_used"),
 	}, nil
@@ -634,6 +636,7 @@ func (c *Client) FilePut(ctx context.Context, path string, paymentMode PaymentMo
 	}
 	return &FilePutResult{
 		DataMap:         str(j, "data_map"),
+		Sha256:          str(j, "sha256"),
 		StorageCostAtto: str(j, "storage_cost_atto"),
 		GasCostWei:      str(j, "gas_cost_wei"),
 		ChunksStored:    unum64(j, "chunks_stored"),
@@ -662,6 +665,7 @@ func (c *Client) FilePutPublic(ctx context.Context, path string, paymentMode Pay
 	}
 	return &FilePutPublicResult{
 		Address:         str(j, "address"),
+		Sha256:          str(j, "sha256"),
 		StorageCostAtto: str(j, "storage_cost_atto"),
 		GasCostWei:      str(j, "gas_cost_wei"),
 		ChunksStored:    unum64(j, "chunks_stored"),
@@ -987,6 +991,7 @@ func (c *Client) FinalizeUpload(ctx context.Context, uploadID string, txHashes m
 	}
 	return &FinalizeUploadResult{
 		DataMap:        str(j, "data_map"),
+		Sha256:         str(j, "sha256"),
 		Address:        str(j, "address"),
 		DataMapAddress: str(j, "data_map_address"),
 		ChunksStored:   num64(j, "chunks_stored"),
@@ -1010,6 +1015,7 @@ func (c *Client) FinalizeMerkleUpload(ctx context.Context, uploadID string, winn
 	}
 	return &FinalizeUploadResult{
 		DataMap:        str(j, "data_map"),
+		Sha256:         str(j, "sha256"),
 		Address:        str(j, "address"),
 		DataMapAddress: str(j, "data_map_address"),
 		ChunksStored:   num64(j, "chunks_stored"),
@@ -1041,6 +1047,7 @@ func (c *Client) FinalizeMerkleUploadMulti(ctx context.Context, uploadID string,
 	}
 	return &FinalizeUploadResult{
 		DataMap:        str(j, "data_map"),
+		Sha256:         str(j, "sha256"),
 		Address:        str(j, "address"),
 		DataMapAddress: str(j, "data_map_address"),
 		ChunksStored:   num64(j, "chunks_stored"),

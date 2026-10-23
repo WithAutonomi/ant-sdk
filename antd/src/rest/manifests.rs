@@ -23,11 +23,13 @@ pub async fn manifest_build(
     ApiJson(req): ApiJson<ManifestBuildRequest>,
 ) -> Result<Json<ManifestBuildResponse>, AntdError> {
     let torrent = manifests::parse_torrent_hashes(&req.torrent_info_hashes)?;
-    let entries = manifests::parse_entries(
-        req.entries
-            .into_iter()
-            .map(|e| (e.path, e.size, e.data_map, e.address)),
-    )?;
+    let entries = manifests::parse_entries(req.entries.into_iter().map(|e| manifests::RawEntry {
+        path: e.path,
+        size: e.size,
+        sha256: e.sha256,
+        data_map: e.data_map,
+        address: e.address,
+    }))?;
     let out = manifests::build(
         &*state.client,
         BuildInput {
@@ -104,6 +106,7 @@ fn entry_json(
         effective_name: info.effective_name,
         path: info.path,
         size: info.size,
+        sha256: info.sha256.map(hex::encode),
         kind: info.kind.to_string(),
         content_address: hex::encode(info.content_address),
         data_map: info

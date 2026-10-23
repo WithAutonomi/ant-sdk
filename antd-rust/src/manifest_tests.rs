@@ -21,6 +21,8 @@ const HEADER: &[u8] = &[0xC1, b'A', b'N', b'T', 0x01];
 const HEADER_B64: &str = "wUFOVAE=";
 const LINK: &str = "ant://manifest/wUFOVAE";
 const ADDR: &str = "42424242424242424242424242424242424242424242424242424242424242aa";
+/// SHA-256 of "hello\n".
+const SHA: &str = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03";
 
 /// The daemon's 400 for a path that leaves the manifest root.
 const BAD_PATH_MESSAGE: &str =
@@ -30,7 +32,8 @@ fn two_entries() -> Vec<ManifestEntryInput> {
     vec![
         ManifestEntryInput::embedded("abcd")
             .with_path("a.txt")
-            .with_size(10),
+            .with_size(10)
+            .with_sha256(SHA),
         ManifestEntryInput::public("11"),
     ]
 }
@@ -58,13 +61,14 @@ async fn rest_build_manifest_sends_entries_and_options_and_returns_raw_bytes() {
     let (mut server, client) = rest().await;
     let m = server
         .mock("POST", "/v1/manifests/build")
-        // Exact match: unset path and size are omitted, not sent as null or 0.
+        // Exact match: unset path, size and sha256 are omitted, not sent as
+        // null, 0 or "".
         .match_body(Matcher::Json(json!({
             "name": "album",
             "torrent_info_hashes": ["aa"],
             "embed_roots": false,
             "entries": [
-                {"path": "a.txt", "size": 10, "data_map": "abcd"},
+                {"path": "a.txt", "size": 10, "sha256": SHA, "data_map": "abcd"},
                 {"address": "11"}
             ]
         })))
@@ -75,8 +79,8 @@ async fn rest_build_manifest_sends_entries_and_options_and_returns_raw_bytes() {
                 "manifest": HEADER_B64,
                 "link": LINK,
                 "entries": [
-                    {"effective_name": "a.txt", "path": "a.txt", "size": 10, "kind": "embedded",
-                     "content_address": "cc", "exact_size": 10},
+                    {"effective_name": "a.txt", "path": "a.txt", "size": 10, "sha256": SHA,
+                     "kind": "embedded", "content_address": "cc", "exact_size": 10},
                     {"effective_name": "11", "kind": "public", "content_address": "11"}
                 ]
             })
@@ -107,6 +111,8 @@ async fn rest_build_manifest_sends_entries_and_options_and_returns_raw_bytes() {
         ("embedded", Some(10), Some(10), Some("a.txt"))
     );
     assert_eq!(a.content_address, "cc");
+    assert_eq!(a.sha256.as_deref(), Some(SHA));
+    assert_eq!(p.sha256, None);
     assert_eq!(
         (
             p.kind.as_str(),
@@ -383,6 +389,7 @@ impl v1::manifest_service_server::ManifestService for MockManifests {
                     effective_name: "a.txt".into(),
                     path: Some("a.txt".into()),
                     size: Some(10),
+                    sha256: SHA.into(),
                     kind: "embedded".into(),
                     content_address: "cc".into(),
                     exact_size: Some(10),
@@ -511,15 +518,22 @@ async fn grpc_build_manifest_sends_presence_and_reads_optional_sizes() {
     assert_eq!(req.embed_roots, Some(true));
     let (first, second) = (&req.entries[0], &req.entries[1]);
     assert_eq!(
-        (first.path.as_deref(), first.size),
-        (Some("a.txt"), Some(10))
+        (first.path.as_deref(), first.size, first.sha256.as_deref()),
+        (Some("a.txt"), Some(10), Some(SHA))
     );
     assert_eq!(
         first.source,
         Some(v1::manifest_entry_input::Source::DataMap("abcd".into()))
     );
-    // Unset path and size have no presence on the wire, not "" and 0.
-    assert_eq!((second.path.as_deref(), second.size), (None, None));
+    // Unset path, size and sha256 have no presence on the wire, not "" and 0.
+    assert_eq!(
+        (
+            second.path.as_deref(),
+            second.size,
+            second.sha256.as_deref()
+        ),
+        (None, None, None)
+    );
     assert_eq!(
         second.source,
         Some(v1::manifest_entry_input::Source::Address("11".into()))
@@ -532,12 +546,15 @@ async fn grpc_build_manifest_sends_presence_and_reads_optional_sizes() {
         (built.entries[0].size, built.entries[0].exact_size),
         (Some(10), Some(10))
     );
+    assert_eq!(built.entries[0].sha256.as_deref(), Some(SHA));
     let p = &built.entries[1];
     assert_eq!(
         (p.size, p.exact_size, p.path.as_deref()),
         (None, None, None)
     );
     assert_eq!((p.data_map.as_deref(), p.error.as_deref()), (None, None));
+    // The empty proto string reads as unset.
+    assert_eq!(p.sha256, None);
 }
 
 #[tokio::test]

@@ -5,10 +5,10 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.11" }  # ant-core 0.13.0 release (2026-10-16): pointer ownership transfer (ADR-0018) + single-flight chunk fetches (ant-client#218); ant-protocol 5.0.0 / evmlib 0.10.0 / saorsa-core 0.29.1 / saorsa-transport 0.38.1; devnets pair it with ant-node 0.23.0. Previous pin ant-cli-v0.3.10 (ant-core 0.12.0). Must stay at ant-cli-v0.3.8 or later, the first release to read the ADR-0005 bootstrap_peers.toml shape (`quic`/`webrtc` multiaddr arrays); older pins silently fell back to the compiled-in list.
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.12" }  # ant-core 0.14.0 release (2026-10-23): SHA-256 of uploads and on manifest entries (ant-client#229, V2-1564) + hot-record read spreading (ADR-0023, ant-client#225) + rustls 0.23.46; ant-protocol 5.0.1 / evmlib 0.10.0 / saorsa-core 0.29.2 / saorsa-transport 0.38.2; devnets pair it with ant-node 0.23.1. Previous pin ant-cli-v0.3.11 (ant-core 0.13.0). Must stay at ant-cli-v0.3.8 or later, the first release to read the ADR-0005 bootstrap_peers.toml shape (`quic`/`webrtc` multiaddr arrays); older pins silently fell back to the compiled-in list.
 self_encryption = "0.36.0"
 evmlib = "0.10.0" # must track ant-core's transitive evmlib (via ant-protocol) to avoid a second copy in the graph
-ant-protocol = "=5.0.0" # pinned exactly to ant-core's transitive ant-protocol (ant-cli-v0.3.11 / ant-core 0.13.0 line; was =4.0.0 on 0.12.0) — a different version would fork PaymentQuote/StorageCommitment in the graph
+ant-protocol = "=5.0.1" # pinned exactly to ant-core's transitive ant-protocol (ant-cli-v0.3.12 / ant-core 0.14.0 line; was =5.0.0 on 0.13.0) — a different version would fork PaymentQuote/StorageCommitment in the graph
 axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
 tonic = "0.12"

@@ -178,12 +178,14 @@ class PutPublicDataResponse extends $pb.GeneratedMessage {
     $core.String? address,
     $fixnum.Int64? chunksStored,
     $core.String? paymentModeUsed,
+    $core.String? sha256,
   }) {
     final result = create();
     if (cost != null) result.cost = cost;
     if (address != null) result.address = address;
     if (chunksStored != null) result.chunksStored = chunksStored;
     if (paymentModeUsed != null) result.paymentModeUsed = paymentModeUsed;
+    if (sha256 != null) result.sha256 = sha256;
     return result;
   }
 
@@ -197,6 +199,7 @@ class PutPublicDataResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'address')
     ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'chunksStored', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..aOS(4, _omitFieldNames ? '' : 'paymentModeUsed')
+    ..aOS(5, _omitFieldNames ? '' : 'sha256')
     ..hasRequiredFields = false
   ;
 
@@ -256,6 +259,17 @@ class PutPublicDataResponse extends $pb.GeneratedMessage {
   $core.bool hasPaymentModeUsed() => $_has(3);
   @$pb.TagNumber(4)
   void clearPaymentModeUsed() => $_clearField(4);
+
+  /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  /// tools outside Autonomi can check (V2-1564).
+  @$pb.TagNumber(5)
+  $core.String get sha256 => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set sha256($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSha256() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSha256() => $_clearField(5);
 }
 
 class StreamPublicDataRequest extends $pb.GeneratedMessage {
@@ -756,12 +770,14 @@ class PutDataResponse extends $pb.GeneratedMessage {
     $core.String? dataMap,
     $fixnum.Int64? chunksStored,
     $core.String? paymentModeUsed,
+    $core.String? sha256,
   }) {
     final result = create();
     if (cost != null) result.cost = cost;
     if (dataMap != null) result.dataMap = dataMap;
     if (chunksStored != null) result.chunksStored = chunksStored;
     if (paymentModeUsed != null) result.paymentModeUsed = paymentModeUsed;
+    if (sha256 != null) result.sha256 = sha256;
     return result;
   }
 
@@ -775,6 +791,7 @@ class PutDataResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'dataMap')
     ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'chunksStored', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..aOS(4, _omitFieldNames ? '' : 'paymentModeUsed')
+    ..aOS(5, _omitFieldNames ? '' : 'sha256')
     ..hasRequiredFields = false
   ;
 
@@ -834,6 +851,17 @@ class PutDataResponse extends $pb.GeneratedMessage {
   $core.bool hasPaymentModeUsed() => $_has(3);
   @$pb.TagNumber(4)
   void clearPaymentModeUsed() => $_clearField(4);
+
+  /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  /// tools outside Autonomi can check (V2-1564).
+  @$pb.TagNumber(5)
+  $core.String get sha256 => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set sha256($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSha256() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSha256() => $_clearField(5);
 }
 
 class DataCostRequest extends $pb.GeneratedMessage {

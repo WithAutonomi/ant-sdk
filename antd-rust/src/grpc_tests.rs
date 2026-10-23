@@ -184,6 +184,7 @@ impl v1::data_service_server::DataService for MockDataService {
             address: "abc123".to_string(),
             chunks_stored: 2,
             payment_mode_used: "auto".to_string(),
+            sha256: String::new(),
         }))
     }
 
@@ -208,6 +209,7 @@ impl v1::data_service_server::DataService for MockDataService {
             data_map: "dm123".to_string(),
             chunks_stored: 3,
             payment_mode_used: "single".to_string(),
+            sha256: String::new(),
         }))
     }
 
@@ -515,6 +517,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                 },
                 data_map_address: String::new(),
                 chunks_stored: 64,
+                sha256: String::new(),
             }));
         }
         // Wave-batch — include data_map_address when visibility was public
@@ -529,6 +532,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                 String::new()
             },
             chunks_stored: 3,
+            sha256: String::new(),
         }))
     }
 }
@@ -548,6 +552,7 @@ impl v1::file_service_server::FileService for MockFileService {
             gas_cost_wei: "41".to_string(),
             chunks_stored: 3,
             payment_mode_used: "auto".to_string(),
+            sha256: String::new(),
         }))
     }
 
@@ -561,6 +566,7 @@ impl v1::file_service_server::FileService for MockFileService {
             gas_cost_wei: "42".to_string(),
             chunks_stored: 3,
             payment_mode_used: "auto".to_string(),
+            sha256: String::new(),
         }))
     }
 
