@@ -162,6 +162,8 @@ end
 
 `decode_manifest(bytes, resolve: true)` takes raw `.ant` bytes. Entries may also be `Antd::ManifestEntryInput`s; use `data_map:` instead of `address:` for an embedded entry, and `embed_roots: false` to keep shrunk DataMaps as given. On `Antd::GrpcClient` too.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `sha256` (`nil` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `Antd::ManifestEntryInput` (or a Hash entry) takes `sha256:`, and entries read it back as `sha256`. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-ruby/examples/09_manifests.rb`. Its two uploads pay; the manifest calls do not.
 
 ```bash

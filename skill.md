@@ -170,6 +170,7 @@ A manifest describes a set of files as one `.ant` document, or as one `ant://man
 - public file: `data_put_public` / `file_put_public` return the `address`
 - private file: `data_put` / `file_put` return the `data_map` (hex). Keep it secret: anyone with it can read the file
 - the manifest does not upload anything; entries are only pointers to what is already there
+- every upload result also has `sha256`, the plaintext's SHA-256 (hex; requires antd 0.17.0 or later, none on older daemons). Pass it as the entry's `sha256` so a downloader can check the file
 
 ```python
 from antd import ManifestEntryInput
@@ -184,6 +185,7 @@ built = client.build_manifest(
     name="trip",
 )
 built.link        # "ant://manifest/..." or None when over 1,500 bytes: share built.manifest (raw bytes) instead
+# To record a hash: ManifestEntryInput(path="intro.txt", address=r.address, sha256=r.sha256), where r is the upload result
 
 # Decode (free). resolve=True also reads each DataMap to fill in exact_size
 m = client.decode_manifest_link(built.link, resolve=True)   # or client.decode_manifest(bytes, resolve=True)
@@ -199,6 +201,7 @@ Rules for the agent:
 - Always pick **one** of `address` or `data_map` per entry; both or neither is refused before sending. Paths are portable relative paths. Every SDK raises its one bad-request error (status 400) for an invalid entry, whether the SDK or the daemon caught it, with a message like `1 invalid entries: entries[0]: give data_map or address, not both`.
 - `link` is empty/`None` past 1,500 bytes; check for it and fall back to the `.ant` bytes. Embedded DataMaps use far more of that budget than public addresses.
 - Embedded entries are private-but-shareable: whoever holds the link or file can read them. Say so before generating code that publishes a link. Public entries can be read by anyone who knows the address.
+- `sha256` is optional on an entry (requires antd 0.17.0 or later). Pass it through exactly as an upload returned it; do not compute, check or lowercase it yourself, the daemon validates it and a bad value is the same bad-request error. Entries read it back, none when the manifest records none.
 - An unset size is `None`/`null`, never `0`. `exact_size` is trustworthy (read from the network); `size` is only what the creator claimed. One entry's failed `resolve` is in that entry's `error`, not an exception.
 - The `.ant` bytes are raw bytes in every SDK; base64 is only the REST wire form. Method names follow each SDK's casing: `buildManifest`, `BuildManifestAsync`, `build_manifest(client, ...)`. JS/TS, Lua, PHP and Zig are REST only; the others also work over gRPC.
 - The MCP server has `build_manifest` and `decode_manifest` tools (free).

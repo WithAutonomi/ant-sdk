@@ -215,6 +215,8 @@ for (const auto& e : decoded.entries) {
 
 `decode_manifest(bytes, resolve)` takes raw `.ant` bytes. Set `.data_map` instead of `.address` for an embedded entry; `BuildManifestOptions::keep_shrunk_data_maps` (default `false`) keeps shrunk DataMaps as given. Sizes are `std::optional<std::uint64_t>`. On `AsyncClient` and `GrpcClient` too.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `std::optional<std::string> sha256` (empty when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `ManifestEntryInput::sha256` (set the optional) records one, and `ManifestEntryInfo::sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-cpp/examples/09-manifests.cpp`. Its two uploads pay; the manifest calls do not.
 
 ```bash

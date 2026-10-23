@@ -430,6 +430,10 @@ The Autonomi network provides these core primitives, all accessible through the 
 
 Data, chunks and files are immutable: new content gets a new address. Pointers are the mutable part. Scratchpads, registers and vaults are not supported.
 
+### SHA-256 of uploads
+
+Every upload result carries `sha256`: the plaintext's SHA-256 (hex, 64 lowercase characters), a standard whole-file hash that tools outside Autonomi can check. It is on the results of `data_put`, `data_put_public`, `file_put`, `file_put_public` and, for external-signer uploads, `finalize_upload` and `finalize_merkle_upload` (cased per language, `Sha256` in C# and Go). It requires antd 0.17.0 or later: on older daemons it is none (`None`, `null`, `nil`, an empty option; Go uses an empty string). The SDKs hand back what the daemon reported and never compute or check it. Pass it to a manifest entry to record it (see Manifests below).
+
 ### Pointers
 
 A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's address, or another pointer) can be changed by the owner. Publish the pointer's address once, then move it to each new version. Pointers need antd 0.16.0 or later (the first release with pointers).
@@ -469,6 +473,7 @@ A manifest describes a set of files as one `.ant` document, or as one `ant://man
 - **Three calls**, in every SDK: `build_manifest`, `decode_manifest` (raw `.ant` bytes) and `decode_manifest_link` (a manifest link, file link or bare address), cased per language. `resolve` also reads each entry's DataMap from the network to report its `exact_size`. REST carries the `.ant` bytes as base64; the SDKs always take and return raw bytes.
 - **Links are limited to 1,500 bytes.** Past that the build still succeeds but returns no link: share the `.ant` bytes instead. Embedded DataMaps cost far more bytes than public addresses.
 - **Embedded means the manifest is the key.** Anyone holding the link or file can read every embedded file. Public entries are readable by anyone who knows the address.
+- **Optional `sha256` per entry.** An entry input can record the file's plaintext SHA-256 (hex), typically the `sha256` its upload returned, and every decoded or built entry reads it back as `sha256` (none when the manifest records none); requires antd 0.17.0 or later. The SDKs send it only when set and non-empty and do not check it; the daemon accepts upper or lower case and refuses anything else as a bad request. Java (`withSha256`) and Rust (`with_sha256`) have a fluent setter.
 
 Every SDK has the manifest API and a runnable example (`ant dev example manifests -l <language>`; each example also reads `ANTD_BASE_URL`, and each run pays for its two small uploads):
 
