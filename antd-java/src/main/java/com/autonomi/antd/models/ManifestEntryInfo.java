@@ -23,6 +23,8 @@ package com.autonomi.antd.models;
  * @param error          why a resolving decode failed for this entry, or
  *                       {@code null}. One entry's failure does not fail the
  *                       call.
+ * @param sha256         the plaintext's SHA-256 (hex, lowercase) recorded for the
+ *                       entry, or {@code null} when none (or antd before 0.17.0)
  */
 public record ManifestEntryInfo(
         String effectiveName,
@@ -32,7 +34,21 @@ public record ManifestEntryInfo(
         String contentAddress,
         String dataMap,
         Long exactSize,
-        String error) {
+        String error,
+        String sha256) {
+
+    /** Backward-compatible constructor without {@code sha256} (defaults to {@code null}). */
+    public ManifestEntryInfo(
+            String effectiveName,
+            String path,
+            Long size,
+            String kind,
+            String contentAddress,
+            String dataMap,
+            Long exactSize,
+            String error) {
+        this(effectiveName, path, size, kind, contentAddress, dataMap, exactSize, error, null);
+    }
 
     /** The {@link #kind()} of an entry that embeds its DataMap. */
     public static final String KIND_EMBEDDED = "embedded";

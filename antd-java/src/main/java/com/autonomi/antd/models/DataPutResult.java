@@ -8,12 +8,20 @@ package com.autonomi.antd.models;
  * @param dataMap         hex-encoded caller-held DataMap
  * @param chunksStored    number of chunks stored on the network
  * @param paymentModeUsed which payment mode was actually used: "auto", "merkle", or "single"
+ * @param sha256          the plaintext's SHA-256 (hex, lowercase); {@code null}
+ *                        on antd before 0.17.0
  */
 public record DataPutResult(
         String dataMap,
         long chunksStored,
-        String paymentModeUsed) {
+        String paymentModeUsed,
+        String sha256) {
     public DataPutResult(String dataMap) {
-        this(dataMap, 0L, "");
+        this(dataMap, 0L, "", null);
+    }
+
+    /** Backward-compatible constructor without {@code sha256} (defaults to {@code null}). */
+    public DataPutResult(String dataMap, long chunksStored, String paymentModeUsed) {
+        this(dataMap, chunksStored, paymentModeUsed, null);
     }
 }

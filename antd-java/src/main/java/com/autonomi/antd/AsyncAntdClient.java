@@ -126,7 +126,8 @@ public class AsyncAntdClient implements AutoCloseable {
                 .thenApply(j -> new DataPutResult(
                         str(j, "data_map"),
                         num(j, "chunks_stored"),
-                        str(j, "payment_mode_used")));
+                        str(j, "payment_mode_used"),
+                        AntdClient.optStr(j, "sha256")));
     }
 
     public CompletableFuture<DataPutResult> dataPutAsync(byte[] data) {
@@ -145,7 +146,8 @@ public class AsyncAntdClient implements AutoCloseable {
                 .thenApply(j -> new DataPutPublicResult(
                         str(j, "address"),
                         num(j, "chunks_stored"),
-                        str(j, "payment_mode_used")));
+                        str(j, "payment_mode_used"),
+                        AntdClient.optStr(j, "sha256")));
     }
 
     public CompletableFuture<DataPutPublicResult> dataPutPublicAsync(byte[] data) {
@@ -235,7 +237,8 @@ public class AsyncAntdClient implements AutoCloseable {
                 str(j, "storage_cost_atto"),
                 str(j, "gas_cost_wei"),
                 num(j, "chunks_stored"),
-                str(j, "payment_mode_used"));
+                str(j, "payment_mode_used"),
+                AntdClient.optStr(j, "sha256"));
     }
 
     private static FilePutPublicResult parseFilePutPublicResult(Map<String, Object> j) {
@@ -244,7 +247,8 @@ public class AsyncAntdClient implements AutoCloseable {
                 str(j, "storage_cost_atto"),
                 str(j, "gas_cost_wei"),
                 num(j, "chunks_stored"),
-                str(j, "payment_mode_used"));
+                str(j, "payment_mode_used"),
+                AntdClient.optStr(j, "sha256"));
     }
 
     public CompletableFuture<UploadCostEstimate> fileCostAsync(String path, boolean isPublic, PaymentMode paymentMode) {
