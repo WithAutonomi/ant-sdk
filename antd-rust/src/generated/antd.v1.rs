@@ -5817,6 +5817,11 @@ pub struct ManifestEntryInput {
     /// recorded; readers take the exact size from an embedded root DataMap.
     #[prost(uint64, optional, tag = "2")]
     pub size: ::core::option::Option<u64>,
+    /// SHA-256 of the plaintext to record, hex (the creator's claim). Unset or
+    /// empty: none is recorded. `ant manifest download` checks downloads against
+    /// it.
+    #[prost(string, optional, tag = "5")]
+    pub sha256: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(oneof = "manifest_entry_input::Source", tags = "3, 4")]
     pub source: ::core::option::Option<manifest_entry_input::Source>,
 }
@@ -5876,6 +5881,10 @@ pub struct ManifestEntryInfo {
     /// Why `resolve` failed for this entry. Empty when it didn't.
     #[prost(string, tag = "8")]
     pub error: ::prost::alloc::string::String,
+    /// The SHA-256 recorded in the manifest, hex: the creator's claim. Empty
+    /// when there is none.
+    #[prost(string, tag = "9")]
+    pub sha256: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BuildManifestResponse {
