@@ -126,7 +126,7 @@ for (const e of decoded.entries) console.log(e.effectiveName, e.exactSize); // n
 ```typescript
 interface ManifestEntryInput { path?: string; size?: number | null; dataMap?: string; address?: string; sha256?: string }
 interface BuildManifestOptions { name?: string; torrentInfoHashes?: string[]; embedRoots?: boolean }
-interface ManifestEntryInfo { effectiveName: string; path: string | null; size: number | null; kind: string /* "embedded" | "public" */; contentAddress: string; dataMap: string | null; exactSize: number | null; error: string | null; sha256: string | null }
+interface ManifestEntryInfo { effectiveName: string; path: string | null; size: number | null; kind: string /* "embedded" | "public" */; contentAddress: string; dataMap: string | null; exactSize: number | null; error: string | null; sha256?: string | null }
 interface BuiltManifest { manifest: Buffer; link: string | null; entries: ManifestEntryInfo[] /* sorted by effective name */ }
 interface DecodedManifest { source: string /* "manifest" | "file_link" */; name: string | null; torrentInfoHashV1: string | null; torrentInfoHashV2: string | null; entries: ManifestEntryInfo[] }
 ```
@@ -205,12 +205,12 @@ interface HealthStatus {
 interface PutResult { cost: string; address: string }
 
 // Data put results (DataMap shape)
-interface DataPutResult { dataMap: string; chunksStored: number; paymentModeUsed: string; sha256: string | null }
-interface DataPutPublicResult { address: string; chunksStored: number; paymentModeUsed: string; sha256: string | null }
+interface DataPutResult { dataMap: string; chunksStored: number; paymentModeUsed: string; sha256?: string | null }
+interface DataPutPublicResult { address: string; chunksStored: number; paymentModeUsed: string; sha256?: string | null }
 
 // File put results
-interface FilePutResult { dataMap: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string; sha256: string | null }
-interface FilePutPublicResult { address: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string; sha256: string | null }
+interface FilePutResult { dataMap: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string; sha256?: string | null }
+interface FilePutPublicResult { address: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string; sha256?: string | null }
 
 // Cost estimate
 interface UploadCostEstimate { cost: string; fileSize: number; chunkCount: number; estimatedGasCostWei: string; paymentMode: string }

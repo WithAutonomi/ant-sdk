@@ -92,7 +92,7 @@ export interface ManifestEntryInfo {
    * The plaintext's SHA-256 (hex, lowercase) when the manifest records one;
    * `null` otherwise, and on antd older than 0.17.0.
    */
-  sha256: string | null;
+  sha256?: string | null;
 }
 
 /** The result of `buildManifest`. */

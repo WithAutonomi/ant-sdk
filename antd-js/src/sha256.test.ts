@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { RestClient } from "./rest-client.js";
 import { BadRequestError } from "./errors.js";
+import type { DataPutResult, ManifestEntryInfo } from "./index.js";
 
 // ---------------------------------------------------------------------------
 // sha256 fields (antd 0.17.0 or later) over a mocked REST daemon.
@@ -43,7 +44,7 @@ function stubFetch(status: number, body: unknown): Captured[] {
 const uploads: Array<{
   name: string;
   body: Record<string, unknown>;
-  call: (c: RestClient) => Promise<{ sha256: string | null }>;
+  call: (c: RestClient) => Promise<{ sha256?: string | null }>;
 }> = [
   {
     name: "dataPut (POST /v1/data)",
@@ -90,6 +91,22 @@ const uploads: Array<{
 ];
 
 describe("sha256", () => {
+  it("is optional on the result types, so hand-built objects still compile", () => {
+    const put: DataPutResult = { dataMap: "dm", chunksStored: 1, paymentModeUsed: "single" };
+    const info: ManifestEntryInfo = {
+      effectiveName: "a",
+      path: null,
+      size: null,
+      kind: "public",
+      contentAddress: CA,
+      dataMap: null,
+      exactSize: null,
+      error: null,
+    };
+    expect(put.sha256).toBeUndefined();
+    expect(info.sha256).toBeUndefined();
+  });
+
   let client: RestClient;
 
   beforeEach(() => {
