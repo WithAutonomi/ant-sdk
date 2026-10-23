@@ -28,6 +28,8 @@ A manifest is built from files that are already on the network, so upload first.
 
 Each upload pays.
 
+Each upload result also carries `sha256`: the plaintext's SHA-256 (hex), a standard whole-file hash that tools outside Autonomi can check. It requires antd 0.17.0 or later and is none on older daemons. Keep it if you want the manifest to record it (step 2).
+
 ### Python
 
 ```python
@@ -100,6 +102,8 @@ print(diary.dataMap.prefix(32), "...")   // the key to the private file
 Describe each file as one entry: a `path` (where the receiver should put it), and **exactly one** of `address` (a public file) or `data_map` (a private file, embedded). Both or neither is refused before anything is sent, with the same bad-request error (status 400) the daemon would give. Add a `name` for the set as a whole, a suggested root directory. Paths are relative and portable: no `..`, no leading slash.
 
 `size` is optional. If you give one it is recorded as you gave it, the creator's claim. Unset means none is recorded, never `0`.
+
+`sha256` is optional too (requires antd 0.17.0 or later). Pass the `sha256` an upload returned and the manifest records it as the creator's claim, so a downloader can check the file against it. Set it with the entry input's `sha256` (`Sha256` in C#; Java has `withSha256`). The SDK sends it only when set and does not check it: the daemon accepts upper or lower case and refuses anything else with the same bad-request error as any other invalid entry (`entries[0]: invalid hex sha256: ...`).
 
 ### Python
 
@@ -238,6 +242,7 @@ What comes back for the trip:
 | `private/diary.txt` | `embedded` | none | 34 | the DataMap, hex |
 
 - `size` is only what the creator recorded. `exact_size` is read from the network, so trust that one.
+- `sha256` is the hash the creator recorded, if any (requires antd 0.17.0 or later); it is none for an entry built without one. It comes back on build and decode alike.
 - Without `resolve`, only entries with an embedded DataMap have an `exact_size`; the rest stay unset until you ask.
 - If one entry cannot be resolved, say its DataMap is not on the network, its `error` says why and the call still succeeds. Check `error` per entry.
 - `decode_manifest_link` also accepts a file link or a bare address. Those come back with `source` `file_link` and one public entry with no path.

@@ -245,11 +245,18 @@ older daemons omit them.
 
 ### Data
 
+Every upload response below (`POST /v1/data`, `POST /v1/data/public`, `POST /v1/files`,
+`POST /v1/files/public` and `POST /v1/upload/finalize`) carries `sha256`: the
+SHA-256 of the uploaded plaintext as lowercase hex (64 characters), a standard
+whole-file hash that tools outside Autonomi can check. Requires antd 0.17.0 or later; older
+daemons omit the key, which the SDKs read as none. Pass it as a manifest entry's
+`sha256` to record it in a manifest.
+
 #### `POST /v1/data/public`
 Store public (unencrypted) data on the network.
 
 Request: `{"data": "<base64>", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"address": "<hex>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
+Response: `{"address": "<hex>", "sha256": "<hex>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `GET /v1/data/public/{addr}`
 Retrieve public data by hex address.
@@ -263,7 +270,7 @@ Stream public data as chunked response. Same path params as above.
 Store private (encrypted) data. Returns a caller-held DataMap instead of an address; the DataMap is NOT stored on-network.
 
 Request: `{"data": "<base64>", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"data_map": "<hex>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
+Response: `{"data_map": "<hex>", "sha256": "<hex>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `POST /v1/data/get`
 Retrieve private data using a caller-held DataMap. POST so the hex DataMap (which can be many KB) goes in the body, not the URL.
@@ -302,7 +309,7 @@ Upload and download files/directories from the local filesystem.
 Upload a local file publicly. Also stores the DataMap on-network as an additional chunk (extra payment) and returns its address.
 
 Request: `{"path": "/absolute/path/to/file", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"address": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
+Response: `{"address": "<hex>", "sha256": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `POST /v1/files/public/get`
 Download a public file to a local path, from the address `POST /v1/files/public` returned.
@@ -313,7 +320,7 @@ Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 Upload a local file *privately*. Returns a caller-held DataMap; the DataMap is NOT stored on-network.
 
 Request: `{"path": "/absolute/path/to/file", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"data_map": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
+Response: `{"data_map": "<hex>", "sha256": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `POST /v1/files/get`
 Download a private file from a caller-held DataMap into a local path.
@@ -408,7 +415,7 @@ Provide either `tx_hashes` (wave_batch) or `winner_pool_hash` (merkle).
 
 Wave-batch request: `{"upload_id": "hex", "tx_hashes": {"0xquotehash": "0xtxhash", ...}}`
 Merkle request: `{"upload_id": "hex", "winner_pool_hash": "0x..."}`
-Response: `{"data_map": "hex", "address": "hex", "chunks_stored": 5}`
+Response: `{"data_map": "hex", "address": "hex", "sha256": "hex", "chunks_stored": 5}` (`sha256` is the plaintext's SHA-256; antd 0.17.0 or later)
 
 #### `POST /v1/chunks/prepare`
 Prepare a single-chunk upload for external signing. The bytes are stored
@@ -585,8 +592,12 @@ Response (`manifest` is the base64 of the raw `.ant` bytes):
   unknown (an embedded root DataMap carries it, so embedded entries have it
   after `embed_roots`), `path` when there is none. Never `0` for unset: `0` is
   an empty file.
-- `sha256` (optional, hex) is recorded as given; pass the `sha256` an upload
-  returned, and `ant manifest download` checks the file against it.
+- `sha256` (optional, hex; requires antd 0.17.0 or later) is recorded as given; pass
+  the `sha256` an upload returned, and `ant manifest download` checks the file
+  against it. The SDKs send it only when set and non-empty and do not check it
+  themselves; the daemon accepts upper or lower case, stores lowercase, and
+  answers anything else with a 400 (`entries[i]: invalid hex sha256: ...` or
+  `entries[i]: sha256 must be 32 bytes, got N`).
 - `content_address` is the file's public DataMap address, the same for a private
   and a public upload of one file.
 
@@ -610,7 +621,7 @@ Response:
   "torrent_info_hash_v2": "<64 hex>",
   "entries": [
     {"effective_name": "photos/a.jpg", "path": "photos/a.jpg", "size": 123,
-     "kind": "embedded", "content_address": "<64 hex>",
+     "sha256": "<hex>", "kind": "embedded", "content_address": "<64 hex>",
      "data_map": "<hex>", "exact_size": 123},
     {"effective_name": "readme.txt", "path": "readme.txt", "kind": "public",
      "content_address": "<64 hex>", "exact_size": 40}
@@ -623,7 +634,9 @@ Response:
   (`POST /v1/data/get`, `POST /v1/files/get`). Public entries have none: use
   `content_address` with `GET /v1/data/public/{addr}` or
   `POST /v1/files/public/get`.
-- `name` and the torrent hashes are omitted when absent.
+- `name` and the torrent hashes are omitted when absent. So is an entry's
+  `sha256` when the manifest records none (it is returned on decode as well as on
+  build; requires antd 0.17.0 or later).
 
 Limits: a manifest is at most 64 MiB and 100,000 entries; each `data_map` at
 most 10 MiB; request bodies at most 100 MiB. A link is recommended at no more
@@ -659,10 +672,10 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 
 ### DataService (data.proto)
 - `GetPublic(GetPublicDataRequest{address}) → GetPublicDataResponse{data: bytes}`
-- `PutPublic(PutPublicDataRequest{data: bytes}) → PutPublicDataResponse{cost, address}`
+- `PutPublic(PutPublicDataRequest{data: bytes}) → PutPublicDataResponse{cost, address, sha256}`
 - `StreamPublic(StreamPublicDataRequest{address}) → stream DataChunk{data: bytes}`
 - `GetPrivate(GetPrivateDataRequest{data_map}) → GetPrivateDataResponse{data: bytes}`
-- `PutPrivate(PutPrivateDataRequest{data: bytes}) → PutPrivateDataResponse{cost, data_map}`
+- `PutPrivate(PutPrivateDataRequest{data: bytes}) → PutPrivateDataResponse{cost, data_map, sha256}`
 - `GetCost(DataCostRequest{data: bytes}) → Cost{atto_tokens, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}`
 
 ### ChunkService (chunks.proto)
@@ -670,9 +683,10 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 - `Put(PutChunkRequest{data: bytes}) → PutChunkResponse{cost, address}`
 
 ### FileService (files.proto)
-- `UploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address}`
+- `UploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address, sha256}`
 - `DownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
 - `GetFileCost(FileCostRequest{path, is_public}) → Cost{atto_tokens, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}`
+- Upload responses carry `sha256` as a plain string: `PutDataResponse` (5), `PutPublicDataResponse` (5), `PutFileResponse` (6), `PutFilePublicResponse` (7) and `FinalizeUploadResponse` (5, wave and merkle). It is the plaintext's SHA-256 as hex, `""` when the daemon predates antd 0.17.0 or later; SDKs map the empty string to none.
 
 ### EventService (events.proto)
 - `Subscribe(SubscribeRequest{}) → stream ClientEventProto{kind, records_paid, records_already_paid, tokens_spent}`
@@ -686,9 +700,9 @@ Mirrors REST `/v1/pointers` 1:1; counters are decimal strings, unset values are 
 
 ### ManifestService (manifests.proto)
 Mirrors REST `/v1/manifests` 1:1; the `.ant` bytes are raw `bytes` here (base64 only on REST), and optional values use proto3 `optional` (check presence, not the zero value). Both calls are unary and free.
-- `Build(BuildManifestRequest{name?, torrent_info_hashes, embed_roots?, entries[{path?, size?, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`: `embed_roots` unset means true; `link` is empty when it would pass 1,500 bytes
+- `Build(BuildManifestRequest{name?, torrent_info_hashes, embed_roots?, entries[{path?, size?, sha256?, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`: `embed_roots` unset means true; `link` is empty when it would pass 1,500 bytes
 - `Decode(DecodeManifestRequest{manifest: bytes | link, resolve}) → DecodeManifestResponse{source, name?, torrent_info_hash_v1, torrent_info_hash_v2, entries}`
-- `ManifestEntryInfo{effective_name, path?, size?, kind, content_address, data_map, exact_size?, error}`: `data_map` is empty for public entries and on build; `error` is empty unless `resolve` failed for that entry
+- `ManifestEntryInfo{effective_name, path?, size?, kind, content_address, data_map, exact_size?, error, sha256}`: `data_map` is empty for public entries and on build; `error` is empty unless `resolve` failed for that entry; `sha256` (field 9, plain string; antd 0.17.0 or later) is empty when the manifest records none. On the request side `ManifestEntryInput.sha256` is `optional string` (5): set it only when given, so presence means something
 - A manifest can be 64 MiB and the server accepts requests up to 100 MiB, so clients raise their receive (and send) limit for these calls: the SDKs set 256 MiB, per call where the gRPC library allows it, otherwise on a second channel for the manifest service. Dart and Elixir set none, because their gRPC libraries have none to raise: grpc-dart enforces no message size limit in either direction and has no setting for one, and grpc-elixir 0.11 reads a unary response whole and caps sends only at its 2 GiB default
 - Errors: invalid entry or input → INVALID_ARGUMENT, with the same `entries[i]` message as REST
 
@@ -707,6 +721,20 @@ JS/TS, PHP, Lua, and Zig are REST-only.
 | HealthStatus | ok: bool, network: string | Health check result |
 | PutResult | cost: string, address: string | Result from any create/put operation |
 | UploadCostEstimate | cost: string, file_size: u64, chunk_count: u32, estimated_gas_cost_wei: string, payment_mode: string | Pre-upload cost breakdown returned by data_cost / file_cost. Server samples up to 5 chunk addresses and extrapolates; gas is an advisory heuristic. |
+
+### Upload results
+
+Wire field names; each SDK cases them idiomatically (`sha256`, `Sha256` in C# and Go). `sha256` is the plaintext's SHA-256 as lowercase hex (64 characters); it requires antd 0.17.0 or later. It is optional in every SDK: a missing key (an older daemon) or the gRPC empty string reads as the language's none (`None`, `null`, `nil`, `Option::None`, an empty `std::optional`); Go keeps an empty string.
+
+| Type | Fields | Daemon response |
+|------|--------|-----------------|
+| DataPutResult | data_map, chunks_stored, payment_mode_used, sha256? | `POST /v1/data` (gRPC `PutDataResponse`) |
+| DataPutPublicResult | address, chunks_stored, payment_mode_used, sha256? | `POST /v1/data/public` (gRPC `PutPublicDataResponse`) |
+| FilePutResult | data_map, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used, sha256? | `POST /v1/files` (gRPC `PutFileResponse`) |
+| FilePutPublicResult | address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used, sha256? | `POST /v1/files/public` (gRPC `PutFilePublicResponse`) |
+| FinalizeUploadResult | data_map, address?, data_map_address?, chunks_stored, sha256? | `POST /v1/upload/finalize`, wave and merkle (gRPC `FinalizeUploadResponse`) |
+
+The SDKs do not compute or check the hash; they hand back what the daemon reported. `PutResult` (chunks) has no `sha256`.
 
 ### Pointers
 
@@ -729,9 +757,9 @@ Wire field names; each SDK cases them idiomatically. Sizes are optional unsigned
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| ManifestEntryInput | path?, size?, data_map \| address | One file to build from: exactly one of `data_map` (hex, embedded) or `address` (hex, public); both or neither is refused before sending, as the SDK's bad-request error (status 400) |
+| ManifestEntryInput | path?, size?, sha256?, data_map \| address | One file to build from: exactly one of `data_map` (hex, embedded) or `address` (hex, public); both or neither is refused before sending, as the SDK's bad-request error (status 400). `sha256?` is the plaintext's SHA-256 (hex, antd 0.17.0 or later) to record; unset or empty is not sent, and it is passed through unchecked (the daemon answers a malformed one with a 400) |
 | BuildManifestOptions | name?, torrent_info_hashes, embed_roots (default true) | Go, Java, C++ and Rust spell the last as `KeepShrunkDataMaps` / `keepShrunkDataMaps` / `keep_shrunk_data_maps` (default false) |
-| ManifestEntryInfo | effective_name, path?, size?, kind ("embedded" \| "public"), content_address, data_map, exact_size?, error | What a manifest says about one entry; `data_map` on decode only, `exact_size` and `error` set by `resolve` (or an embedded root) |
+| ManifestEntryInfo | effective_name, path?, size?, kind ("embedded" \| "public"), content_address, data_map, exact_size?, error, sha256? | What a manifest says about one entry; `data_map` on decode only, `exact_size` and `error` set by `resolve` (or an embedded root); `sha256` is the recorded hash, on build and decode, none when the manifest records none (antd 0.17.0 or later) |
 | BuiltManifest | manifest (raw `.ant` bytes), link, entries | `link` is empty or none when it would pass 1,500 bytes; entries are sorted by effective name |
 | DecodedManifest | source ("manifest" \| "file_link"), name?, torrent_info_hash_v1, torrent_info_hash_v2, entries | A decoded manifest or file link |
 
@@ -1093,7 +1121,7 @@ func (c *Client) PointerPrepare(ctx context.Context, req PointerPrepareRequest) 
 func (c *Client) PointerFinalize(ctx context.Context, uploadID string, txHashes map[string]string) (*PointerFinalizeResult, error)
 
 // Manifests (ADR-0006, antd 0.16.0 or later; free; sizes are *uint64, unset is nil; bytes are []byte); same methods on GrpcClient
-// BuildManifestOptions{Name, TorrentInfoHashes, KeepShrunkDataMaps}; ManifestEntryInput{Path, Size, DataMap, Address}
+// BuildManifestOptions{Name, TorrentInfoHashes, KeepShrunkDataMaps}; ManifestEntryInput{Path, Size, Sha256, DataMap, Address}; upload results and ManifestEntryInfo carry Sha256 (antd 0.17.0 or later; "" when none)
 func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error)
 func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error)
 func (c *Client) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error)
@@ -1635,9 +1663,9 @@ Every tool with a `private` flag (`store_data`, `retrieve_data`, `upload_file`, 
 
 | MCP Tool | Python SDK Method | Description |
 |----------|-------------------|-------------|
-| `store_data(text, private?, payment_mode?)` | `data_put_public` / `data_put` | Store text on the network. Private store returns the caller-held DataMap in `address`. |
+| `store_data(text, private?, payment_mode?)` | `data_put_public` / `data_put` | Store text on the network. Private store returns the caller-held DataMap in `address`. Also returns `sha256` (the plaintext's SHA-256, hex; antd 0.17.0 or later, `null` on older daemons). |
 | `retrieve_data(address, private?)` | `data_get_public` / `data_get` | Retrieve text. Pass `private=True` if `address` is a caller-held DataMap from a private store. |
-| `upload_file(path, private?, payment_mode?)` | `file_put_public` / `file_put` | Upload a local file. Private upload returns the caller-held DataMap in `address`. |
+| `upload_file(path, private?, payment_mode?)` | `file_put_public` / `file_put` | Upload a local file. Private upload returns the caller-held DataMap in `address`. Also returns `sha256` (antd 0.17.0 or later, `null` on older daemons). |
 | `download_file(address, dest_path, private?)` | `file_get_public` / `file_get` | Download a file. Pass `private=True` if `address` is a caller-held DataMap from a private upload. |
 | `chunk_put` | `chunk_put` | Store raw chunk |
 | `chunk_get` | `chunk_get` | Retrieve raw chunk |
@@ -1659,8 +1687,8 @@ Every tool with a `private` flag (`store_data`, `retrieve_data`, `upload_file`, 
 
 No pointer tool retries a paid write; counters come back as decimal strings.
 
-| `build_manifest(entries, name?, torrent_info_hashes?, embed_roots?)` | `build_manifest` | Build a manifest from DataMaps and public addresses; returns `manifest_base64`, `link` (null past 1,500 bytes) and entries. Free |
-| `decode_manifest(manifest_base64? \| link?, resolve?)` | `decode_manifest` | Decode a manifest, manifest link, file link or address; `resolve=true` fills `exact_size`. Free |
+| `build_manifest(entries, name?, torrent_info_hashes?, embed_roots?)` | `build_manifest` | Build a manifest from DataMaps and public addresses; returns `manifest_base64`, `link` (null past 1,500 bytes) and entries. Each input entry may carry `sha256` (hex, passed through unchecked); each returned entry has `sha256`, `null` when none (antd 0.17.0 or later). Free |
+| `decode_manifest(manifest_base64? \| link?, resolve?)` | `decode_manifest` | Decode a manifest, manifest link, file link or address; `resolve=true` fills `exact_size`. Each entry has `sha256`, `null` when none (antd 0.17.0 or later). Free |
 
 ---
 

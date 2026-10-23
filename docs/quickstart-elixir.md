@@ -197,6 +197,8 @@ for e <- decoded.entries, do: IO.puts("#{e.effective_name}: #{inspect(e.exact_si
 
 `decode_manifest(client, bytes, resolve: true)` takes raw `.ant` bytes. Set `data_map:` instead of `address:` for an embedded entry, and `embed_roots: false` to keep shrunk DataMaps as given. Every function has a `!` variant, and `Antd.GrpcClient` has the same set.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `sha256` (`nil` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `%Antd.ManifestEntryInput{sha256: hex}` records one, and `Antd.ManifestEntryInfo`'s `sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-elixir/examples/09_manifests.exs`. Its two uploads pay; the manifest calls do not.
 
 ```bash

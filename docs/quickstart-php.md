@@ -168,6 +168,8 @@ foreach ($client->decodeManifest($built->manifest, resolve: true)->entries as $e
 
 `decodeManifestLink($link, resolve: true)` takes a link instead. The `.ant` bytes are a plain PHP string, and every manifest method has an `Async` variant.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `?string $sha256` (`null` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `new ManifestEntryInput(sha256: $hex, ...)` records one, and `ManifestEntryInfo->sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-php/examples/09-manifests.php`. Its two uploads pay; the manifest calls do not.
 
 ```bash

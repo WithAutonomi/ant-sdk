@@ -196,6 +196,8 @@ decoded.entries.forEach { println("${it.effectiveName}: ${it.exactSize} bytes") 
 
 `decodeManifest(bytes, resolve = false)` takes raw `.ant` bytes. Use `dataMap =` instead of `address =` for an embedded entry; `BuildManifestOptions` has `embedRoots` (default `true`). Sizes are `ULong?`.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `sha256: String?` (`null` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `ManifestEntryInput(sha256 = hex)` records one, and `ManifestEntryInfo.sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-kotlin/examples/src/main/kotlin/com/autonomi/examples/Example09Manifests.kt`. Its two uploads pay; the manifest calls do not.
 
 ```bash

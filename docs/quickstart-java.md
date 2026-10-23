@@ -201,6 +201,8 @@ decoded.entries().forEach(e -> System.out.println(e.effectiveName() + ": " + e.e
 
 `decodeManifest(byte[] bytes, boolean resolve)` takes raw `.ant` bytes. `ManifestEntryInput.ofDataMap(hex)` makes an embedded entry; `BuildManifestOptions` has `keepShrunkDataMaps` (default `false`: roots are embedded). `AsyncAntdClient` has `Async`-suffixed variants and `GrpcAntdClient` the same methods.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `sha256()` (`null` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `ManifestEntryInput.withSha256(hex)` records one, and `ManifestEntryInfo.sha256()` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-java/examples/src/main/java/com/autonomi/examples/Example09Manifests.java`. Its two uploads pay; the manifest calls do not.
 
 ```bash

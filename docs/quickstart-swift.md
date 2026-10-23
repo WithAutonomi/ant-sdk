@@ -205,6 +205,8 @@ for entry in decoded.entries {
 
 `decodeManifestLink(_:resolve:)` takes a link instead. Use `dataMap:` instead of `address:` for an embedded entry; `BuildManifestOptions(embedRoots: false)` keeps shrunk DataMaps as given. Sizes are `UInt64?`.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `sha256: String?` (`nil` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `ManifestEntryInput(sha256: hex, ...)` records one, and `ManifestEntryInfo.sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: the `manifests` example in `antd-swift/Sources/AntdExamples/Main.swift`. Its two uploads pay; the manifest calls do not.
 
 ```bash
