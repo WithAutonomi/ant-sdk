@@ -48,6 +48,8 @@ export interface DataPutResult {
   dataMap: string; // hex caller-held DataMap
   chunksStored: number;
   paymentModeUsed: string;
+  /** The plaintext's SHA-256 (hex, lowercase); `null` on antd older than 0.17.0. */
+  sha256: string | null;
 }
 
 /**
@@ -58,6 +60,8 @@ export interface DataPutPublicResult {
   address: string; // hex on-network DataMap address
   chunksStored: number;
   paymentModeUsed: string;
+  /** The plaintext's SHA-256 (hex, lowercase); `null` on antd older than 0.17.0. */
+  sha256: string | null;
 }
 
 /**
@@ -70,6 +74,8 @@ export interface FilePutResult {
   gasCostWei: string; // decimal string
   chunksStored: number;
   paymentModeUsed: string;
+  /** The plaintext's SHA-256 (hex, lowercase); `null` on antd older than 0.17.0. */
+  sha256: string | null;
 }
 
 /**
@@ -82,6 +88,8 @@ export interface FilePutPublicResult {
   gasCostWei: string;
   chunksStored: number;
   paymentModeUsed: string;
+  /** The plaintext's SHA-256 (hex, lowercase); `null` on antd older than 0.17.0. */
+  sha256: string | null;
 }
 
 /** Wallet address response. */
@@ -138,6 +146,8 @@ export interface FinalizeUploadResult {
   chunksStored: number;
   dataMap: string; // hex-encoded serialized DataMap (always returned, "" on older daemons)
   dataMapAddress: string; // set when prepare was called with visibility="public" (paid in same external-signer batch); "" otherwise
+  /** The plaintext's SHA-256 (hex, lowercase); `null` on antd older than 0.17.0. */
+  sha256: string | null;
 }
 
 /**

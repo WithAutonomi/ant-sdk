@@ -36,6 +36,12 @@ export interface ManifestEntryInput {
   dataMap?: string;
   /** A public file's DataMap address (hex, 32 bytes). */
   address?: string;
+  /**
+   * The plaintext's SHA-256 to record (hex), passed through as given; the
+   * daemon validates it. Omitted or `""`: none is recorded. Requires antd
+   * 0.17.0 or later.
+   */
+  sha256?: string;
 }
 
 /** The optional parts of a `buildManifest` call. */
@@ -82,6 +88,11 @@ export interface ManifestEntryInfo {
   exactSize: number | null;
   /** Why a resolving decode failed for this entry; `null` otherwise. */
   error: string | null;
+  /**
+   * The plaintext's SHA-256 (hex, lowercase) when the manifest records one;
+   * `null` otherwise, and on antd older than 0.17.0.
+   */
+  sha256: string | null;
 }
 
 /** The result of `buildManifest`. */
@@ -194,6 +205,7 @@ export function manifestBuildBody(
     if (e.size !== undefined && e.size !== null) m.size = e.size;
     if (isSet(e.dataMap)) m.data_map = e.dataMap;
     else m.address = e.address;
+    if (isSet(e.sha256)) m.sha256 = e.sha256;
     return m;
   });
   const body: Record<string, unknown> = {
@@ -241,6 +253,7 @@ function entryFromJson(j: Record<string, unknown>): ManifestEntryInfo {
     dataMap: optionalString(j.data_map),
     exactSize: optionalSize("exact_size", j.exact_size),
     error: optionalString(j.error),
+    sha256: optionalString(j.sha256),
   };
 }
 
