@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - `sha256` on the upload results (`DataPutResult`, `DataPutPublicResult`,
   `FilePutResult`, `FilePutPublicResult`, `FinalizeUploadResult`) and on

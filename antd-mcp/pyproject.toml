@@ -34,7 +34,11 @@ dependencies = [
   # report). server.py, manifests.py and errors.py still guard those imports,
   # so an environment that bypasses the floor (e.g. --no-deps) starts and
   # serves the other tools.
-  "antd[rest]>=0.3.0,<0.4",
+  # antd 0.4.0 adds `sha256` to upload results and manifest entries, which the
+  # upload and manifest tools report; _fields.sha256_of reads it defensively,
+  # so 0.3.0 still works without it. The floor moves to 0.4.0 once 0.4.0 is
+  # on PyPI.
+  "antd[rest]>=0.3.0,<0.5",
 ]
 
 [project.optional-dependencies]
