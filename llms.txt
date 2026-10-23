@@ -79,9 +79,9 @@ data = client.data_get_public(result.address)
 | Service | RPCs | Proto file |
 |---------|------|------------|
 | HealthService | Check | health.proto |
-| DataService | GetPublic, PutPublic, StreamPublic, GetPrivate, PutPrivate, GetCost | data.proto |
+| DataService | Put, PutPublic, Get, GetPublic, Stream, StreamPublic, Cost | data.proto |
 | ChunkService | Get, Put | chunks.proto |
-| FileService | UploadPublic, DownloadPublic, GetFileCost | files.proto |
+| FileService | Put, PutPublic, Get, GetPublic, Cost | files.proto |
 | EventService | Subscribe | events.proto |
 | PointerService | ListKeys, Create, Update, Transfer, Get, Resolve, Finality, Controller, Prepare, Finalize | pointers.proto |
 
