@@ -195,7 +195,7 @@ foreach (var e in decoded.Entries)
 
 `DecodeManifestAsync(byte[] manifest, bool resolve = false)` takes raw `.ant` bytes. `ManifestEntryInput.Embedded(dataMap, path)` makes an embedded entry. Sizes are `ulong?`.
 
-Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `string? Sha256` (`null` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `ManifestEntryInput` has a `Sha256` property (`ManifestEntryInput.Public(address, path) with { Sha256 = hex }`) and `ManifestEntryInfo.Sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult` and `FinalizeMerkleUploadResult`) also has `string? Sha256` (`null` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `ManifestEntryInput` has a `Sha256` property (`ManifestEntryInput.Public(address, path) with { Sha256 = hex }`) and `ManifestEntryInfo.Sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
 
 Runnable example: example 9 in `antd-csharp/Examples/Program.cs`. Its two uploads pay; the manifest calls do not.
 

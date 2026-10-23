@@ -734,7 +734,7 @@ Wire field names; each SDK cases them idiomatically (`sha256`, `Sha256` in C# an
 | FilePutPublicResult | address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used, sha256? | `POST /v1/files/public` (gRPC `PutFilePublicResponse`) |
 | FinalizeUploadResult | data_map, address?, data_map_address?, chunks_stored, sha256? | `POST /v1/upload/finalize`, wave and merkle (gRPC `FinalizeUploadResponse`) |
 
-The SDKs do not compute or check the hash; they hand back what the daemon reported. `PutResult` (chunks) has no `sha256`.
+The SDKs do not compute or check the hash; they hand back what the daemon reported. C#, Kotlin and Swift return a separate `FinalizeMerkleUploadResult` from the merkle finalize call; it carries `sha256` too. `PutResult` (chunks) has no `sha256`.
 
 ### Pointers
 
