@@ -642,6 +642,82 @@ describe("antd client", function()
         end)
     end)
 
+    -- ── sha256 on upload results (antd >= 0.17.0) ──
+
+    describe("sha256 on upload results", function()
+        local SHA = string.rep("ab", 32)
+
+        -- Each upload call with the response body it reads, so every result
+        -- type is checked with the key present, absent, "" and null.
+        local cases = {
+            { name = "data_put_public", path = "/v1/data/public",
+              body = { address = "abc123", chunks_stored = 3, payment_mode_used = "single" },
+              call = function() return client:data_put_public("hello") end },
+            { name = "data_put", path = "/v1/data",
+              body = { data_map = "dm123", chunks_stored = 2, payment_mode_used = "merkle" },
+              call = function() return client:data_put("secret") end },
+            { name = "file_put_public", path = "/v1/files/public",
+              body = { address = "file1", storage_cost_atto = "1000", gas_cost_wei = "42",
+                       chunks_stored = 3, payment_mode_used = "auto" },
+              call = function() return client:file_put_public("/tmp/test.txt") end },
+            { name = "file_put", path = "/v1/files",
+              body = { data_map = "fdm1", storage_cost_atto = "900", gas_cost_wei = "42",
+                       chunks_stored = 2, payment_mode_used = "merkle" },
+              call = function() return client:file_put("/tmp/secret.txt") end },
+            { name = "finalize_upload", path = "/v1/upload/finalize",
+              body = { address = "0xFIN", chunks_stored = 4, data_map = "deadbeef" },
+              call = function() return client:finalize_upload("up_1", { qh1 = "tx1" }) end },
+            { name = "finalize_merkle_upload", path = "/v1/upload/finalize",
+              body = { address = "0xFIN", chunks_stored = 4 },
+              call = function() return client:finalize_merkle_upload("up_1", "pool", false) end },
+        }
+
+        local function with(body, extra)
+            local out = {}
+            for k, v in pairs(body) do out[k] = v end
+            for k, v in pairs(extra) do out[k] = v end
+            return out
+        end
+
+        for _, c in ipairs(cases) do
+            it(c.name .. " reads sha256 when present", function()
+                register_route("POST", c.path, 200, cjson.encode(with(c.body, { sha256 = SHA })))
+                local result, err = c.call()
+                assert.is_nil(err)
+                assert.are.equal(SHA, result.sha256)
+                assert.are.equal(c.body.chunks_stored, result.chunks_stored)
+            end)
+
+            it(c.name .. " reads sha256 as nil when absent, empty or null", function()
+                register_route("POST", c.path, 200, cjson.encode(c.body))
+                local result, err = c.call()
+                assert.is_nil(err)
+                assert.is_nil(result.sha256)
+
+                register_route("POST", c.path, 200, cjson.encode(with(c.body, { sha256 = "" })))
+                result, err = c.call()
+                assert.is_nil(err)
+                assert.is_nil(result.sha256)
+
+                register_route("POST", c.path, 200, cjson.encode(with(c.body, { sha256 = cjson.null })))
+                result, err = c.call()
+                assert.is_nil(err)
+                assert.is_nil(result.sha256)
+            end)
+        end
+
+        it("takes sha256 as the last model constructor argument, no value meaning nil", function()
+            local models = require("antd.models")
+            assert.are.equal(SHA, models.new_data_put_result("dm", 1, "auto", SHA).sha256)
+            assert.is_nil(models.new_data_put_result("dm", 1, "auto").sha256)
+            assert.is_nil(models.new_data_put_public_result("a", 1, "auto", "").sha256)
+            assert.are.equal(SHA, models.new_file_put_result("dm", "1", "2", 1, "auto", SHA).sha256)
+            assert.are.equal(SHA, models.new_file_put_public_result("a", "1", "2", 1, "auto", SHA).sha256)
+            assert.are.equal(SHA, models.new_finalize_upload_result({ sha256 = SHA }).sha256)
+            assert.is_nil(models.new_finalize_upload_result({}).sha256)
+        end)
+    end)
+
     -- ── Single-chunk external-signer (antd >= 0.7.0) ──
 
     describe("prepare_chunk_upload", function()
