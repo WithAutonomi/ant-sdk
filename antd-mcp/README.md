@@ -165,6 +165,8 @@ Errors return structured error objects:
 }
 ```
 
+The `sha256` fields on upload and manifest results need both an antd daemon 0.17.0 or later and an [`antd`](https://pypi.org/project/antd/) Python SDK 0.4.0 or later. With an older daemon or SDK they are `null`.
+
 ### Partial uploads
 
 `finalize_upload` / `finalize_merkle_upload` can fail *after* the payment went through: some chunks store, others miss quorum after the daemon's own retries. The error object then carries the counts and a `retryable` flag so the agent can decide what to do:
