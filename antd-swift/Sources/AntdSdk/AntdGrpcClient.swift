@@ -105,7 +105,7 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
             let resp = try await Antd_V1_DataService.Client(wrapping: client).put(req)
             // gRPC PutDataResponse carries only the DataMap (+ an empty Cost);
             // chunks_stored / payment_mode_used aren't on the wire here.
-            return DataPutResult(dataMap: resp.dataMap, chunksStored: resp.chunksStored, paymentModeUsed: resp.paymentModeUsed)
+            return DataPutResult(dataMap: resp.dataMap, chunksStored: resp.chunksStored, paymentModeUsed: resp.paymentModeUsed, sha256: ManifestWire.nonEmpty(resp.sha256))
         }
     }
 
@@ -124,7 +124,7 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
             req.data = data
             req.paymentMode = paymentMode.rawValue
             let resp = try await Antd_V1_DataService.Client(wrapping: client).putPublic(req)
-            return DataPutPublicResult(address: resp.address, chunksStored: resp.chunksStored, paymentModeUsed: resp.paymentModeUsed)
+            return DataPutPublicResult(address: resp.address, chunksStored: resp.chunksStored, paymentModeUsed: resp.paymentModeUsed, sha256: ManifestWire.nonEmpty(resp.sha256))
         }
     }
 
@@ -329,7 +329,8 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
                 storageCostAtto: resp.storageCostAtto,
                 gasCostWei: resp.gasCostWei,
                 chunksStored: resp.chunksStored,
-                paymentModeUsed: resp.paymentModeUsed
+                paymentModeUsed: resp.paymentModeUsed,
+                sha256: ManifestWire.nonEmpty(resp.sha256)
             )
         }
     }
@@ -354,7 +355,8 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
                 storageCostAtto: resp.storageCostAtto,
                 gasCostWei: resp.gasCostWei,
                 chunksStored: resp.chunksStored,
-                paymentModeUsed: resp.paymentModeUsed
+                paymentModeUsed: resp.paymentModeUsed,
+                sha256: ManifestWire.nonEmpty(resp.sha256)
             )
         }
     }
@@ -468,7 +470,8 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
                 address: resp.address,
                 chunksStored: Int64(resp.chunksStored),
                 dataMap: resp.dataMap,
-                dataMapAddress: resp.dataMapAddress
+                dataMapAddress: resp.dataMapAddress,
+                sha256: ManifestWire.nonEmpty(resp.sha256)
             )
         }
     }
@@ -521,7 +524,8 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
                 address: resp.address,
                 chunksStored: Int64(resp.chunksStored),
                 dataMap: resp.dataMap,
-                dataMapAddress: resp.dataMapAddress
+                dataMapAddress: resp.dataMapAddress,
+                sha256: ManifestWire.nonEmpty(resp.sha256)
             )
         }
     }

@@ -69,6 +69,7 @@ extension AntdRestClient {
         } else if let address = ManifestWire.nonEmpty(entry.address) {
             json["address"] = address
         }
+        if let sha256 = ManifestWire.nonEmpty(entry.sha256) { json["sha256"] = sha256 }
         return json
     }
 }
@@ -86,6 +87,7 @@ private struct ManifestEntryInfoDTO: Decodable {
     let dataMap: String?
     let exactSize: UInt64?
     let error: String?
+    let sha256: String?
 
     func toModel() -> ManifestEntryInfo {
         ManifestEntryInfo(
@@ -96,7 +98,8 @@ private struct ManifestEntryInfoDTO: Decodable {
             contentAddress: contentAddress ?? "",
             dataMap: ManifestWire.nonEmpty(dataMap),
             exactSize: exactSize,
-            error: ManifestWire.nonEmpty(error)
+            error: ManifestWire.nonEmpty(error),
+            sha256: ManifestWire.nonEmpty(sha256)
         )
     }
 }
