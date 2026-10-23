@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- `sha256` on the upload results (`DataPutResult`, `DataPutPublicResult`,
+  `FilePutResult`, `FilePutPublicResult`, `FinalizeUploadResult`) and on
+  `ManifestEntryInput` / `ManifestEntryInfo` (needs antd 0.17.0 or later),
+  over REST and gRPC. It is a `String?` (hex), `null` when the daemon does
+  not report it or sends an empty string; on a manifest entry input it is
+  sent as given, only when set and non-empty. Added last in each
+  constructor, so existing code compiles unchanged.
+
 ## 0.3.0
 
 - Pointers, on both `AntdClient` and `GrpcAntdClient` (needs antd 0.16.0

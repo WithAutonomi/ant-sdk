@@ -32,7 +32,18 @@ class ManifestEntryInput {
   /// A public file's DataMap address (hex, 32 bytes).
   final String? address;
 
-  const ManifestEntryInput({this.path, this.size, this.dataMap, this.address});
+  /// The plaintext's SHA-256 to record, hex (the creator's claim), passed
+  /// to the daemon as given. `null` or empty: none is recorded and the key
+  /// is omitted. Requires antd 0.17.0 or later.
+  final String? sha256;
+
+  const ManifestEntryInput({
+    this.path,
+    this.size,
+    this.dataMap,
+    this.address,
+    this.sha256,
+  });
 
   /// The REST wire form: unset fields are omitted.
   Map<String, dynamic> toJson() => {
@@ -42,11 +53,12 @@ class ManifestEntryInput {
           'data_map': dataMap
         else
           'address': address,
+        if (sha256?.isNotEmpty ?? false) 'sha256': sha256,
       };
 
   @override
   String toString() => 'ManifestEntryInput(path: $path, size: $size, '
-      'dataMap: $dataMap, address: $address)';
+      'dataMap: $dataMap, address: $address, sha256: $sha256)';
 }
 
 /// The daemon's message for a decode with neither bytes nor a link.
@@ -113,6 +125,11 @@ class ManifestEntryInfo {
   /// One entry's failure is reported here, not as a failed call.
   final String? error;
 
+  /// The plaintext's SHA-256 recorded in the manifest, lowercase hex: the
+  /// creator's claim. `null` when none was recorded. Requires antd 0.17.0
+  /// or later.
+  final String? sha256;
+
   const ManifestEntryInfo({
     required this.effectiveName,
     this.path,
@@ -122,6 +139,7 @@ class ManifestEntryInfo {
     this.dataMap,
     this.exactSize,
     this.error,
+    this.sha256,
   });
 
   /// The REST wire form, where unset fields are omitted (or `null`).
@@ -135,6 +153,7 @@ class ManifestEntryInfo {
       dataMap: _nonEmpty(json['data_map']),
       exactSize: (json['exact_size'] as num?)?.toInt(),
       error: _nonEmpty(json['error']),
+      sha256: _nonEmpty(json['sha256']),
     );
   }
 
@@ -142,7 +161,7 @@ class ManifestEntryInfo {
   String toString() => 'ManifestEntryInfo(effectiveName: $effectiveName, '
       'path: $path, size: $size, kind: $kind, '
       'contentAddress: $contentAddress, exactSize: $exactSize, '
-      'error: $error)';
+      'error: $error, sha256: $sha256)';
 }
 
 /// The result of [AntdClient.buildManifest].
