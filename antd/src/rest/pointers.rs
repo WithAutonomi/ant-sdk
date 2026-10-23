@@ -9,6 +9,7 @@ use axum::Json;
 
 use crate::error::AntdError;
 use crate::pointers::{self, parse_address, parse_prepared_write, parse_target};
+use crate::rest::json::ApiJson;
 use crate::state::AppState;
 use crate::types::*;
 
@@ -20,7 +21,7 @@ pub async fn pointer_keys(State(state): State<Arc<AppState>>) -> Json<PointerKey
 /// `POST /v1/pointers` — create a pointer, paid by the daemon wallet.
 pub async fn pointer_create(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<PointerWriteRequest>,
+    ApiJson(req): ApiJson<PointerWriteRequest>,
 ) -> Result<Json<PointerWriteResponse>, AntdError> {
     let owner = parse_address("owner", &req.owner)?;
     let target = parse_target(&req.target, req.kind.as_deref())?;
@@ -31,7 +32,7 @@ pub async fn pointer_create(
 /// daemon wallet. Creates the pointer if it does not exist.
 pub async fn pointer_update(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<PointerWriteRequest>,
+    ApiJson(req): ApiJson<PointerWriteRequest>,
 ) -> Result<Json<PointerWriteResponse>, AntdError> {
     let owner = parse_address("owner", &req.owner)?;
     let target = parse_target(&req.target, req.kind.as_deref())?;
@@ -42,7 +43,7 @@ pub async fn pointer_update(
 /// daemon wallet.
 pub async fn pointer_transfer(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<PointerTransferRequest>,
+    ApiJson(req): ApiJson<PointerTransferRequest>,
 ) -> Result<Json<PointerTransferResponse>, AntdError> {
     let owner = parse_address("owner", &req.owner)?;
     let recipient = parse_address("recipient", &req.recipient)?;
@@ -89,7 +90,7 @@ pub async fn pointer_controller(
 /// signer. Needs no daemon wallet.
 pub async fn pointer_prepare(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<PointerPrepareRequest>,
+    ApiJson(req): ApiJson<PointerPrepareRequest>,
 ) -> Result<Json<PointerPrepareResponse>, AntdError> {
     let owner = parse_address("owner", &req.owner)?;
     let prepared = parse_prepared_write(
@@ -106,7 +107,7 @@ pub async fn pointer_prepare(
 /// `POST /v1/pointers/finalize` — store a prepared write once it is paid.
 pub async fn pointer_finalize(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<PointerFinalizeRequest>,
+    ApiJson(req): ApiJson<PointerFinalizeRequest>,
 ) -> Result<Json<PointerFinalizeResponse>, AntdError> {
     Ok(Json(
         pointers::finalize(&state, &req.upload_id, &req.tx_hashes).await?,

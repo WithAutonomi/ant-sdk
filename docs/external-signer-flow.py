@@ -116,7 +116,7 @@ def main() -> int:
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as out:
             dst = out.name
         rsp = requests.post(
-            f"{ANTD}/v1/files/download/public",
+            f"{ANTD}/v1/files/public/get",
             json={"address": addr, "dest_path": dst},
         )
         if rsp.status_code != 200:

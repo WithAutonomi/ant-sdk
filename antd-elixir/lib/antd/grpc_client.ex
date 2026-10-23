@@ -15,14 +15,18 @@ defmodule Antd.GrpcClient do
 
   ## Proto compilation
 
-  Run `protoc` with the Elixir gRPC plugin to generate stubs:
+  The generated modules under `lib/antd/v1/` are committed; regenerate them
+  with `scripts/generate-protos.sh`, which pins protoc-gen-elixir and lists
+  the protos this SDK ships stubs for.
 
-      protoc --elixir_out=plugins=grpc:lib \\
-        -I../antd/proto \\
-        antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \\
-        antd/v1/chunks.proto antd/v1/files.proto
+  ## Pointers
 
-  The generated modules are expected under `lib/antd/v1/`.
+  The `pointer_*` functions mirror `Antd.Client`'s, each with a `:timeout`
+  option (milliseconds, default 5 minutes). Every write pays, and every
+  attempt pays again, so they never retry and callers should not either.
+  Errors that share a gRPC status with older ones are told apart by the
+  daemon's `x-antd-error-code` metadata, trusted only when it agrees with the
+  status code.
   """
 
   alias Antd.PaymentMode
@@ -70,7 +74,11 @@ defmodule Antd.GrpcClient do
   """
   @spec new(String.t()) :: {:ok, t()} | {:error, Exception.t()}
   def new(target \\ @default_target) do
-    case GRPC.Stub.connect(target) do
+    # Antd.GrpcAdapter is grpc's Gun adapter, except that it keeps a failed
+    # unary call's metadata when asked to (the pointer functions read the
+    # daemon's x-antd-error-code from it). Every other call behaves as with
+    # the default adapter.
+    case GRPC.Stub.connect(target, adapter: Antd.GrpcAdapter) do
       {:ok, channel} ->
         {:ok, %__MODULE__{target: target, channel: channel}}
 
@@ -834,6 +842,340 @@ defmodule Antd.GrpcClient do
     do: unwrap!(finalize_chunk_upload(client, upload_id, tx_hashes))
 
   # ---------------------------------------------------------------------------
+  # Pointers
+  # ---------------------------------------------------------------------------
+  #
+  # PointerService: the same functions, results and errors as the REST
+  # client's pointer functions (see `Antd.Client`). Every write pays, and
+  # every attempt pays again: none of these functions retries, and callers
+  # must not retry pointer_create, pointer_update, pointer_transfer or
+  # pointer_finalize automatically. Reads are free to retry.
+  #
+  # Each call keeps the response metadata (`return_headers: true`, which
+  # Antd.GrpcAdapter extends to failed calls), because the daemon sends its
+  # error code there (x-antd-error-code) for the errors that share a gRPC
+  # status with older ones: POINTER_FINAL and POINTER_FORKED
+  # (FAILED_PRECONDITION, otherwise a PaymentError), CONFLICT (ABORTED) and
+  # CLOSE_GROUP_SHORTFALL (UNAVAILABLE, otherwise a NetworkError). The tag is
+  # trusted only when it agrees with the status (`Antd.Errors.grpc_tagged_error/3`).
+  #
+  # Every pointer function takes a `:timeout` option in milliseconds. It
+  # defaults to 5 minutes, the REST client's default, rather than grpc's
+  # 10 seconds, since a write quotes, pays and stores before it answers.
+
+  @pointer_timeout 300_000
+  @error_code_key "x-antd-error-code"
+
+  @doc """
+  Lists the pointers this daemon holds owner keys for, as their addresses.
+  Mirrors `Antd.Client.pointer_keys/1`.
+
+  ## Options
+
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec pointer_keys(t(), keyword()) :: {:ok, [String.t()]} | {:error, Exception.t()}
+  def pointer_keys(%__MODULE__{channel: channel}, opts \\ []) do
+    req = %Antd.V1.ListPointerKeysRequest{}
+
+    with {:ok, resp} <-
+           pointer_call(&Antd.V1.PointerService.Stub.list_keys/3, channel, req, opts) do
+      {:ok, Enum.map(resp.keys, & &1.address)}
+    end
+  end
+
+  @doc "Like `pointer_keys/2` but raises on error."
+  @spec pointer_keys!(t(), keyword()) :: [String.t()]
+  def pointer_keys!(client, opts \\ []), do: unwrap!(pointer_keys(client, opts))
+
+  @doc """
+  Creates the pointer at `owner`, pointing at `target`, paid by the daemon
+  wallet. Mirrors `Antd.Client.pointer_create/4`: `Antd.AlreadyExistsError`
+  if it exists, refused before paying. **Each call pays**: do not retry it
+  automatically.
+
+  ## Options
+
+    * `:kind` — `t:Antd.PointerKind.t/0` (`:chunk`, the daemon's default, or
+      `:pointer`).
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec pointer_create(t(), String.t(), String.t(), keyword()) ::
+          {:ok, Antd.PointerWriteResult.t()} | {:error, Exception.t()}
+  def pointer_create(%__MODULE__{channel: channel}, owner, target, opts \\ [])
+      when is_binary(owner) and is_binary(target) do
+    pointer_write(&Antd.V1.PointerService.Stub.create/3, channel, owner, target, opts)
+  end
+
+  @doc "Like `pointer_create/4` but raises on error."
+  @spec pointer_create!(t(), String.t(), String.t(), keyword()) :: Antd.PointerWriteResult.t()
+  def pointer_create!(client, owner, target, opts \\ []),
+    do: unwrap!(pointer_create(client, owner, target, opts))
+
+  @doc """
+  Points the pointer at `owner` at `target`, paid by the daemon wallet,
+  creating it if it does not exist. Mirrors `Antd.Client.pointer_update/4`:
+  `Antd.PointerFinalError` once it was transferred or frozen (usually refused
+  before paying), and `Antd.ConflictError` if a prepared write awaits payment
+  (refused before paying) or the update lost to a newer state (possibly after
+  paying). **Each call pays**: do not retry it automatically. Takes the same
+  options as `pointer_create/4`.
+  """
+  @spec pointer_update(t(), String.t(), String.t(), keyword()) ::
+          {:ok, Antd.PointerWriteResult.t()} | {:error, Exception.t()}
+  def pointer_update(%__MODULE__{channel: channel}, owner, target, opts \\ [])
+      when is_binary(owner) and is_binary(target) do
+    pointer_write(&Antd.V1.PointerService.Stub.update/3, channel, owner, target, opts)
+  end
+
+  @doc "Like `pointer_update/4` but raises on error."
+  @spec pointer_update!(t(), String.t(), String.t(), keyword()) :: Antd.PointerWriteResult.t()
+  def pointer_update!(client, owner, target, opts \\ []),
+    do: unwrap!(pointer_update(client, owner, target, opts))
+
+  defp pointer_write(rpc, channel, owner, target, opts) do
+    kind =
+      case Keyword.get(opts, :kind) do
+        nil -> ""
+        kind -> Antd.PointerKind.to_wire(kind)
+      end
+
+    req = %Antd.V1.PointerWriteRequest{owner: owner, target: target, kind: kind}
+
+    with {:ok, resp} <- pointer_call(rpc, channel, req, opts) do
+      Antd.Pointers.write_from_proto(resp)
+    end
+  end
+
+  @doc """
+  Hands the pointer at `owner` over to the pointer at `recipient`, for good,
+  paid by the daemon wallet. Mirrors `Antd.Client.pointer_transfer/3`.
+  Irreversible once stored. **Each call pays**: do not retry it
+  automatically.
+
+  ## Options
+
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec pointer_transfer(t(), String.t(), String.t(), keyword()) ::
+          {:ok, Antd.PointerTransferResult.t()} | {:error, Exception.t()}
+  def pointer_transfer(%__MODULE__{channel: channel}, owner, recipient, opts \\ [])
+      when is_binary(owner) and is_binary(recipient) do
+    req = %Antd.V1.PointerTransferRequest{owner: owner, recipient: recipient}
+
+    with {:ok, resp} <-
+           pointer_call(&Antd.V1.PointerService.Stub.transfer/3, channel, req, opts) do
+      Antd.Pointers.transfer_from_proto(resp)
+    end
+  end
+
+  @doc "Like `pointer_transfer/4` but raises on error."
+  @spec pointer_transfer!(t(), String.t(), String.t(), keyword()) ::
+          Antd.PointerTransferResult.t()
+  def pointer_transfer!(client, owner, recipient, opts \\ []),
+    do: unwrap!(pointer_transfer(client, owner, recipient, opts))
+
+  @doc """
+  Reads the pointer at `address`. Mirrors `Antd.Client.pointer_get/2`:
+  `Antd.NotFoundError` if there is none.
+
+  ## Options
+
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec pointer_get(t(), String.t(), keyword()) ::
+          {:ok, Antd.PointerRecord.t()} | {:error, Exception.t()}
+  def pointer_get(%__MODULE__{channel: channel}, address, opts \\ []) when is_binary(address) do
+    req = %Antd.V1.GetPointerRequest{address: address}
+
+    with {:ok, resp} <- pointer_call(&Antd.V1.PointerService.Stub.get/3, channel, req, opts) do
+      Antd.Pointers.record_from_proto(resp)
+    end
+  end
+
+  @doc "Like `pointer_get/3` but raises on error."
+  @spec pointer_get!(t(), String.t(), keyword()) :: Antd.PointerRecord.t()
+  def pointer_get!(client, address, opts \\ []), do: unwrap!(pointer_get(client, address, opts))
+
+  @doc """
+  Follows a chain of pointers from `address` to the target at its end.
+  Mirrors `Antd.Client.pointer_resolve/2`.
+
+  ## Options
+
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec pointer_resolve(t(), String.t(), keyword()) ::
+          {:ok, Antd.PointerTarget.t()} | {:error, Exception.t()}
+  def pointer_resolve(%__MODULE__{channel: channel}, address, opts \\ [])
+      when is_binary(address) do
+    req = %Antd.V1.ResolvePointerRequest{address: address}
+
+    with {:ok, resp} <-
+           pointer_call(&Antd.V1.PointerService.Stub.resolve/3, channel, req, opts) do
+      {:ok, Antd.Pointers.target_from_proto(resp)}
+    end
+  end
+
+  @doc "Like `pointer_resolve/3` but raises on error."
+  @spec pointer_resolve!(t(), String.t(), keyword()) :: Antd.PointerTarget.t()
+  def pointer_resolve!(client, address, opts \\ []),
+    do: unwrap!(pointer_resolve(client, address, opts))
+
+  @doc """
+  Asks the whole close group where the pointer at `address` stands. Mirrors
+  `Antd.Client.pointer_finality/2`; an unset counter, state or majority (an
+  empty string or absent message on the wire) reads as `nil`.
+
+  ## Options
+
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec pointer_finality(t(), String.t(), keyword()) ::
+          {:ok, Antd.PointerFinality.t()} | {:error, Exception.t()}
+  def pointer_finality(%__MODULE__{channel: channel}, address, opts \\ [])
+      when is_binary(address) do
+    req = %Antd.V1.PointerFinalityRequest{address: address}
+
+    with {:ok, resp} <-
+           pointer_call(&Antd.V1.PointerService.Stub.finality/3, channel, req, opts) do
+      Antd.Pointers.finality_from_proto(resp)
+    end
+  end
+
+  @doc "Like `pointer_finality/3` but raises on error."
+  @spec pointer_finality!(t(), String.t(), keyword()) :: Antd.PointerFinality.t()
+  def pointer_finality!(client, address, opts \\ []),
+    do: unwrap!(pointer_finality(client, address, opts))
+
+  @doc """
+  Follows the transfers of the pointer at `address` to the pointer whose
+  owner now decides what it resolves to. Mirrors
+  `Antd.Client.pointer_controller/2`.
+
+  ## Options
+
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec pointer_controller(t(), String.t(), keyword()) ::
+          {:ok, Antd.PointerController.t()} | {:error, Exception.t()}
+  def pointer_controller(%__MODULE__{channel: channel}, address, opts \\ [])
+      when is_binary(address) do
+    req = %Antd.V1.PointerControllerRequest{address: address}
+
+    with {:ok, resp} <-
+           pointer_call(&Antd.V1.PointerService.Stub.controller/3, channel, req, opts) do
+      {:ok, Antd.Pointers.controller_from_proto(resp)}
+    end
+  end
+
+  @doc "Like `pointer_controller/3` but raises on error."
+  @spec pointer_controller!(t(), String.t(), keyword()) :: Antd.PointerController.t()
+  def pointer_controller!(client, address, opts \\ []),
+    do: unwrap!(pointer_controller(client, address, opts))
+
+  @doc """
+  Has the daemon sign `op` on the pointer at `owner` and quote it for an
+  external signer. Mirrors `Antd.Client.pointer_prepare/4`; `op` is an
+  `t:Antd.PointerOp.t/0`.
+
+  ## Options
+
+    * `:include_signed_quotes` — when `true`, the result's `signed_quotes`
+      carries each quote in full signed form (base64, as over REST).
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec pointer_prepare(t(), String.t(), Antd.PointerOp.t(), keyword()) ::
+          {:ok, Antd.PointerPrepareResult.t()} | {:error, Exception.t()}
+  def pointer_prepare(%__MODULE__{channel: channel}, owner, op, opts \\ [])
+      when is_binary(owner) do
+    fields = Antd.PointerOp.to_fields(op)
+
+    req = %Antd.V1.PreparePointerRequest{
+      owner: owner,
+      op: fields.op,
+      target: Map.get(fields, :target, ""),
+      kind: Map.get(fields, :kind, ""),
+      recipient: Map.get(fields, :recipient, ""),
+      include_signed_quotes: Keyword.get(opts, :include_signed_quotes, false) == true
+    }
+
+    with {:ok, resp} <-
+           pointer_call(&Antd.V1.PointerService.Stub.prepare/3, channel, req, opts) do
+      Antd.Pointers.prepare_from_proto(resp)
+    end
+  end
+
+  @doc "Like `pointer_prepare/4` but raises on error."
+  @spec pointer_prepare!(t(), String.t(), Antd.PointerOp.t(), keyword()) ::
+          Antd.PointerPrepareResult.t()
+  def pointer_prepare!(client, owner, op, opts \\ []),
+    do: unwrap!(pointer_prepare(client, owner, op, opts))
+
+  @doc """
+  Stores a prepared pointer write once its external signer has paid.
+  Mirrors `Antd.Client.pointer_finalize/3`: an
+  `Antd.CloseGroupShortfallError` with `retryable: true` (read from the
+  message's closing `(paid attempt retained...)` hint) means the daemon kept
+  the paid state; repeat the call with the same `upload_id`, bounded. This
+  function never retries by itself.
+
+  ## Options
+
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec pointer_finalize(t(), String.t(), map(), keyword()) ::
+          {:ok, Antd.PointerFinalizeResult.t()} | {:error, Exception.t()}
+  def pointer_finalize(%__MODULE__{channel: channel}, upload_id, tx_hashes, opts \\ [])
+      when is_binary(upload_id) and is_map(tx_hashes) do
+    req = %Antd.V1.FinalizePointerRequest{upload_id: upload_id, tx_hashes: tx_hashes}
+
+    with {:ok, resp} <-
+           pointer_call(&Antd.V1.PointerService.Stub.finalize/3, channel, req, opts) do
+      Antd.Pointers.finalize_from_proto(resp)
+    end
+  end
+
+  @doc "Like `pointer_finalize/4` but raises on error."
+  @spec pointer_finalize!(t(), String.t(), map(), keyword()) :: Antd.PointerFinalizeResult.t()
+  def pointer_finalize!(client, upload_id, tx_hashes, opts \\ []),
+    do: unwrap!(pointer_finalize(client, upload_id, tx_hashes, opts))
+
+  # Runs one PointerService RPC with the response metadata kept, and maps a
+  # failure by the daemon's x-antd-error-code where it agrees with the status.
+  # A channel opened without Antd.GrpcAdapter returns a failure without
+  # metadata, which keeps the status mapping.
+  defp pointer_call(rpc, channel, req, opts) do
+    call_opts = [timeout: Keyword.get(opts, :timeout, @pointer_timeout), return_headers: true]
+
+    case rpc.(channel, req, call_opts) do
+      {:ok, resp, _metadata} -> {:ok, resp}
+      {:ok, resp} -> {:ok, resp}
+      {:error, rpc_error, metadata} -> {:error, translate_pointer_error(rpc_error, metadata)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  defp translate_pointer_error(%GRPC.RPCError{status: status, message: message} = error, md) do
+    Antd.Errors.grpc_tagged_error(status, error_code(md), message) || translate_error(error)
+  end
+
+  defp translate_pointer_error(error, _metadata), do: translate_error(error)
+
+  # A trailers-only response (how the daemon answers a failed unary call)
+  # carries the code in its headers; a full response in its trailers.
+  defp error_code(metadata) when is_map(metadata) do
+    Enum.find_value([:trailers, :headers], fn key ->
+      case Map.get(metadata, key) do
+        %{@error_code_key => code} -> code
+        _ -> nil
+      end
+    end)
+  end
+
+  defp error_code(_), do: nil
+
+  # ---------------------------------------------------------------------------
   # Internal helpers
   # ---------------------------------------------------------------------------
 
@@ -1026,5 +1368,112 @@ defmodule Antd.GrpcClient do
   @doc "Like `wallet_approve/1` but raises on error."
   @spec wallet_approve!(t()) :: boolean()
   def wallet_approve!(client), do: unwrap!(wallet_approve(client))
+
+  # ---------------------------------------------------------------------------
+  # Manifests
+  # ---------------------------------------------------------------------------
+  #
+  # ManifestService: the same functions, results and errors as the REST
+  # client's manifest functions (see `Antd.Client.build_manifest/3`). Nothing
+  # is uploaded or paid for; the embedding policy and `resolve` read the
+  # network, so a call can time out and is safe to retry. Manifest bytes
+  # travel as raw protobuf `bytes`.
+  #
+  # Message size: a manifest can be 64 MiB, and a Build or Decode response
+  # carries it, so antd-go raises its client's 4 MiB receive default per
+  # call. grpc-elixir 0.11 and 1.0 have no receive limit to raise: the Gun adapter
+  # reads a unary response whole, whatever its size; GRPC.Stub.connect has no
+  # option for one, and a call rejects any option it does not know; and
+  # sends are capped only by GRPC.Message's 2 GiB default. So no limit is
+  # passed here (revisit if a later grpc-elixir adds one).
+  # test/antd/grpc_manifests_test.exs round-trips a manifest over 4 MiB both
+  # ways to hold that.
+  #
+  # Each function takes a `:timeout` option in milliseconds. It defaults to
+  # 5 minutes, the REST client's default, rather than grpc's 10 seconds.
+
+  @manifest_timeout 300_000
+
+  @doc """
+  Builds a `.ant` manifest from DataMaps and public addresses already in
+  hand. Mirrors `Antd.Client.build_manifest/3`, including its entry check
+  before sending; an entry the daemon rejects (`INVALID_ARGUMENT`) is an
+  `Antd.BadRequestError` whose message names `entries[i]`. Nothing is
+  uploaded or paid for.
+
+  ## Options
+
+    * `:name`, `:torrent_info_hashes`, `:embed_roots` (default `true`) — as
+      for `Antd.Client.build_manifest/3`.
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec build_manifest(t(), [Antd.ManifestEntryInput.t()], keyword()) ::
+          {:ok, Antd.BuiltManifest.t()} | {:error, Exception.t()}
+  def build_manifest(%__MODULE__{channel: channel}, entries, opts \\ []) when is_list(entries) do
+    with :ok <- Antd.Manifests.check_entries(entries) do
+      req = Antd.Manifests.build_request(entries, opts)
+
+      case Antd.V1.ManifestService.Stub.build(channel, req, manifest_call_opts(opts)) do
+        {:ok, resp} -> {:ok, Antd.Manifests.built_from_proto(resp)}
+        {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+      end
+    end
+  end
+
+  @doc "Like `build_manifest/3` but raises on error."
+  @spec build_manifest!(t(), [Antd.ManifestEntryInput.t()], keyword()) :: Antd.BuiltManifest.t()
+  def build_manifest!(client, entries, opts \\ []),
+    do: unwrap!(build_manifest(client, entries, opts))
+
+  @doc """
+  Decodes `.ant` bytes (a raw binary). Mirrors
+  `Antd.Client.decode_manifest/3`.
+
+  ## Options
+
+    * `:resolve` — as for `Antd.Client.decode_manifest/3` (default `false`).
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec decode_manifest(t(), binary(), keyword()) ::
+          {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
+  def decode_manifest(%__MODULE__{} = client, manifest, opts \\ []) when is_binary(manifest) do
+    with :ok <- Antd.Manifests.check_input(manifest) do
+      decode_manifest_call(client, {:manifest, manifest}, opts)
+    end
+  end
+
+  @doc "Like `decode_manifest/3` but raises on error."
+  @spec decode_manifest!(t(), binary(), keyword()) :: Antd.DecodedManifest.t()
+  def decode_manifest!(client, manifest, opts \\ []),
+    do: unwrap!(decode_manifest(client, manifest, opts))
+
+  @doc """
+  Decodes an `ant://` manifest link, a file link or a bare 64-hex address.
+  Mirrors `Antd.Client.decode_manifest_link/3`; takes the same options as
+  `decode_manifest/3`.
+  """
+  @spec decode_manifest_link(t(), String.t(), keyword()) ::
+          {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
+  def decode_manifest_link(%__MODULE__{} = client, link, opts \\ []) when is_binary(link) do
+    with :ok <- Antd.Manifests.check_input(link) do
+      decode_manifest_call(client, {:link, link}, opts)
+    end
+  end
+
+  @doc "Like `decode_manifest_link/3` but raises on error."
+  @spec decode_manifest_link!(t(), String.t(), keyword()) :: Antd.DecodedManifest.t()
+  def decode_manifest_link!(client, link, opts \\ []),
+    do: unwrap!(decode_manifest_link(client, link, opts))
+
+  defp decode_manifest_call(%__MODULE__{channel: channel}, input, opts) do
+    req = Antd.Manifests.decode_request(input, opts)
+
+    case Antd.V1.ManifestService.Stub.decode(channel, req, manifest_call_opts(opts)) do
+      {:ok, resp} -> {:ok, Antd.Manifests.decoded_from_proto(resp)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  defp manifest_call_opts(opts), do: [timeout: Keyword.get(opts, :timeout, @manifest_timeout)]
 
 end

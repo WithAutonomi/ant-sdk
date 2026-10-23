@@ -1,0 +1,448 @@
+name: Security audit
+
+# Dependency advisory scan for every SDK in the repo (V2-1582 §3).
+#
+# Runs Monday and Wednesday at 05:17 UTC, ahead of the release-decision
+# meetings, so a new advisory against an unchanged lockfile shows up without
+# waiting for someone to touch that SDK. It also runs on any PR or main push
+# that changes a manifest or lockfile, and on demand (workflow_dispatch).
+#
+# Jobs:
+#   cargo-audit     RustSec advisories for every Cargo.lock. Honours each
+#                   directory's .cargo/audit.toml. Fails on vulnerabilities,
+#                   warns on unmaintained/unsound/yanked.
+#   govulncheck     Go vulnerabilities antd-go actually calls (reachability).
+#   npm-audit       npm advisories from the committed package-lock.json files.
+#   dotnet-audit    NuGet advisories, transitive included (osv-scanner only
+#                   sees the direct PackageReferences in a .csproj).
+#   resolve         Most SDKs deliberately don't commit lockfiles (they're
+#                   libraries). This job generates the lockfile a fresh
+#                   install would get today: Dart, PHP, Ruby, Python, Gradle
+#                   (antd-java, antd-kotlin, ffi/android, ffi/kotlin) and
+#                   Swift. ffi/python and ffi/swift declare no package
+#                   dependencies (their native library is ffi/rust, which
+#                   cargo-audit and osv-scanner cover), so there is nothing
+#                   to resolve for them.
+#   osv-scanner     Scans every committed and generated lockfile against
+#                   OSV, which also carries GitHub-only advisories that
+#                   RustSec / cargo audit miss. Blocking for everything
+#                   except examples/; the examples get a report-only pass.
+#
+# Policy: any finding outside examples/ fails the run, dev and test
+# dependencies included (they run in CI next to publishing credentials).
+# Accepted findings go in osv-scanner.toml (Rust: also .cargo/audit.toml)
+# with a reason, a tracking issue and an ignoreUntil date. Ecosystems without
+# a committed lockfile are scanned as resolved on the day, so results can
+# change between runs without a code change. That's the point of the
+# schedule. Lua, Zig and C++ have no usable advisory database and aren't
+# scanned.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1,3"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/security-audit.yml"
+      - ".github/security-audit/**"
+      - "osv-scanner.toml"
+      - "**/.cargo/audit.toml"
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - "**/go.mod"
+      - "**/go.sum"
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "**/pyproject.toml"
+      - "**/pubspec.yaml"
+      - "**/composer.json"
+      - "**/Gemfile"
+      - "**/*.gemspec"
+      - "**/mix.exs"
+      - "**/mix.lock"
+      - "**/*.gradle.kts"
+      - "**/Package.swift"
+      - "**/*.csproj"
+  pull_request:
+    paths:
+      - ".github/workflows/security-audit.yml"
+      - ".github/security-audit/**"
+      - "osv-scanner.toml"
+      - "**/.cargo/audit.toml"
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - "**/go.mod"
+      - "**/go.sum"
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "**/pyproject.toml"
+      - "**/pubspec.yaml"
+      - "**/composer.json"
+      - "**/Gemfile"
+      - "**/*.gemspec"
+      - "**/mix.exs"
+      - "**/mix.lock"
+      - "**/*.gradle.kts"
+      - "**/Package.swift"
+      - "**/*.csproj"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Scanner versions are pinned so a scanner release can't change results
+  # unannounced. Bump them deliberately.
+  CARGO_AUDIT_VERSION: "0.22.2"
+  GOVULNCHECK_VERSION: "v1.9.0"
+  OSV_SCANNER_VERSION: "2.7.0"
+  UV_VERSION: "0.13.3"
+
+jobs:
+  cargo-audit:
+    name: cargo audit (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [antd, antd-rust, ffi/rust, ffi/node]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Same key as ci.yml's audit job: only the cargo-audit binary is
+          # cached, not any crate's build.
+          key: cargo-audit-tool
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --version "$CARGO_AUDIT_VERSION"
+
+      - name: cargo audit
+        working-directory: ${{ matrix.dir }}
+        run: cargo audit
+
+  govulncheck:
+    name: govulncheck (antd-go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: antd-go/go.mod
+          cache-dependency-path: antd-go/go.sum
+
+      - name: Install govulncheck
+        run: go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
+
+      # Fails only on vulnerabilities in code antd-go actually calls.
+      # Module-level findings it can't reach are listed but don't fail; the
+      # osv-scanner job reports those against go.mod.
+      - name: govulncheck
+        run: govulncheck ./...
+
+  npm-audit:
+    name: npm audit (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [antd-js, ffi/node]
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Reads package-lock.json directly; nothing is installed.
+      - name: npm audit (all dependencies, dev included)
+        run: npm audit --package-lock-only --audit-level=low
+
+  dotnet-audit:
+    name: NuGet audit (.NET)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # Exercises every exit path of the audit script against a stub dotnet,
+      # including restore/listing failures that must not pass as clean.
+      - name: Test the NuGet audit script
+        run: bash .github/security-audit/test-nuget-audit.sh
+
+      - name: Vulnerable packages (transitive included)
+        run: bash .github/security-audit/nuget-audit.sh
+
+  resolve:
+    name: Resolve lockfiles (${{ matrix.ecosystem }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ecosystem: [dart, php, ruby, python, gradle]
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: matrix.ecosystem == 'dart'
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - if: matrix.ecosystem == 'dart'
+        name: dart pub get
+        working-directory: antd-dart
+        run: dart pub get
+
+      - if: matrix.ecosystem == 'php'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          coverage: none
+          tools: composer:v2
+
+      # Writes composer.lock without installing anything. Platform
+      # requirements (gmp for the external-signer dev dependency) don't
+      # matter for resolution.
+      - if: matrix.ecosystem == 'php'
+        name: composer update --no-install
+        working-directory: antd-php
+        run: composer update --no-install --no-interaction --no-progress --no-plugins --no-scripts --ignore-platform-reqs
+
+      - if: matrix.ecosystem == 'ruby'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - if: matrix.ecosystem == 'ruby'
+        name: bundle lock
+        working-directory: antd-ruby
+        run: bundle lock
+
+      - if: matrix.ecosystem == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # antd-mcp and ant-dev depend on antd from PyPI, as a user's install
+      # would. --all-extras covers rest, grpc and dev.
+      - if: matrix.ecosystem == 'python'
+        name: uv pip compile
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check "uv==$UV_VERSION"
+          for p in antd-py antd-mcp ant-dev; do
+            uv pip compile "$p/pyproject.toml" --all-extras --quiet -o "$p/requirements.txt"
+          done
+
+      - if: matrix.ecosystem == 'gradle'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ffi/android and ffi/kotlin have no wrapper; ffi-ci.yml builds
+      # ffi/android with Gradle 8.9.
+      - if: matrix.ecosystem == 'gradle'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      # Four separate Gradle builds; none includes another, so each is locked
+      # on its own. ffi/kotlin is the standalone JVM UniFFI binding (JNA,
+      # coroutines).
+      - if: matrix.ecosystem == 'gradle'
+        name: Gradle dependency locking (antd-java, antd-kotlin, ffi/android, ffi/kotlin)
+        env:
+          INIT: ${{ github.workspace }}/.github/security-audit/lock-all.init.gradle
+        run: |
+          set -euo pipefail
+          (cd antd-java && ./gradlew --no-daemon --console=plain --init-script "$INIT" resolveAndLockAll --write-locks)
+          (cd antd-kotlin && ../antd-java/gradlew --no-daemon --console=plain -p . --init-script "$INIT" resolveAndLockAll --write-locks)
+          (cd ffi/android && gradle --no-daemon --console=plain --init-script "$INIT" resolveAndLockAll --write-locks \
+            -PauditConfigurations=releaseRuntimeClasspath)
+          (cd ffi/kotlin && gradle --no-daemon --console=plain --init-script "$INIT" resolveAndLockAll --write-locks)
+          # Each Gradle root must have produced a lockfile; a silently
+          # skipped root would mean an unscanned SDK.
+          for f in antd-java/gradle.lockfile antd-kotlin/lib/gradle.lockfile \
+                   ffi/android/gradle.lockfile ffi/kotlin/AntFfi/gradle.lockfile; do
+            test -s "$f" || { echo "::error file=$f::expected Gradle lockfile was not generated"; exit 1; }
+          done
+
+      # Copy every generated lockfile under resolved/, keeping its repo path,
+      # so the osv-scanner job can lay them back over a fresh checkout.
+      - name: Collect generated lockfiles
+        run: .github/security-audit/collect-lockfiles.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: resolved-${{ matrix.ecosystem }}
+          path: resolved/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Swift resolves in its own job because the toolchain decides what gets
+  # resolved: SwiftNIO's security fixes (swift-nio >= 2.100.0, -http2 >=
+  # 1.44.0, -extras >= 1.34.1) need swift-tools-version 6.1, so a Swift 6.0
+  # toolchain silently resolves older, vulnerable releases. The official
+  # image pins a current toolchain (what someone installing antd-swift today
+  # would use); setup-swift lags behind Swift releases. ffi/swift has no
+  # package dependencies, so only antd-swift has anything to resolve.
+  resolve-swift:
+    name: Resolve lockfiles (swift)
+    runs-on: ubuntu-latest
+    container: swift:6.4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: swift package resolve
+        working-directory: antd-swift
+        run: |
+          swift --version
+          swift package resolve
+
+      # In a container the workspace belongs to the runner's user, not the
+      # container's, so git refuses it ("dubious ownership") unless told
+      # it's safe. checkout's own safe.directory entry doesn't outlive that step.
+      - name: Collect generated lockfiles
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          .github/security-audit/collect-lockfiles.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: resolved-swift
+          path: resolved/
+          if-no-files-found: error
+          retention-days: 7
+
+  osv-scanner:
+    name: osv-scanner (all lockfiles)
+    needs: [resolve, resolve-swift]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: resolved-*
+          merge-multiple: true
+          path: .
+
+      # A resolve job that silently produced fewer lockfiles would leave an
+      # SDK unscanned while the scan still passed, so every expected source
+      # is checked. Add new SDKs/manifests here.
+      - name: Check lockfile coverage
+        run: |
+          set -euo pipefail
+          expected=(
+            # committed
+            antd/Cargo.lock antd-rust/Cargo.lock ffi/rust/Cargo.lock ffi/node/Cargo.lock
+            antd-go/go.mod antd-js/package-lock.json ffi/node/package-lock.json antd-elixir/mix.lock
+            # generated by the resolve jobs
+            antd-dart/pubspec.lock antd-php/composer.lock antd-ruby/Gemfile.lock
+            antd-py/requirements.txt antd-mcp/requirements.txt ant-dev/requirements.txt
+            antd-java/gradle.lockfile antd-kotlin/lib/gradle.lockfile
+            ffi/android/gradle.lockfile ffi/kotlin/AntFfi/gradle.lockfile
+            antd-swift/Package.resolved
+          )
+          missing=0
+          {
+            echo "## Lockfiles scanned (${#expected[@]} expected)"
+            echo
+            for f in "${expected[@]}"; do
+              if [ -s "$f" ]; then echo "- \`$f\`"; else echo "- **MISSING** \`$f\`"; missing=1; fi
+            done
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in "${expected[@]}"; do
+            [ -s "$f" ] || echo "::error file=$f::expected lockfile is missing, so this SDK would not be scanned"
+          done
+          exit "$missing"
+
+      - name: Install osv-scanner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh release download "v$OSV_SCANNER_VERSION" --repo google/osv-scanner \
+            --pattern osv-scanner_linux_amd64 --pattern osv-scanner_SHA256SUMS
+          grep ' osv-scanner_linux_amd64$' osv-scanner_SHA256SUMS | sha256sum -c -
+          install -m 0755 osv-scanner_linux_amd64 /usr/local/bin/osv-scanner
+          osv-scanner --version
+
+      # --no-ignore: the generated lockfiles are gitignored (the SDKs don't
+      # commit them), so osv-scanner would otherwise skip them.
+      #
+      # Exit codes are captured with `|| code=$?`: Actions runs bash with -e,
+      # so a bare non-zero osv-scanner call (exit 1 = findings) would end the
+      # step before the summary and the ::error:: line are written.
+      - name: Scan (blocking; everything except examples)
+        run: |
+          set -uo pipefail
+          args=(scan source --recursive --no-ignore --config osv-scanner.toml
+                --x-exclude 'g:**/examples' --x-exclude 'g:**/Examples')
+          osv-scanner "${args[@]}" --format sarif --output-file osv.sarif . >/dev/null 2>&1 || true
+          code=0
+          osv-scanner "${args[@]}" --format markdown --output-file osv.md . 2>osv.log || code=$?
+          {
+            echo "## osv-scanner: blocking pass (everything except examples)"
+            echo
+            if [ "$code" -eq 0 ]; then echo "No unaccepted findings."; else cat osv.md; fi
+            echo
+            echo "<details><summary>Accepted findings (osv-scanner.toml)</summary>"
+            echo
+            grep 'has been filtered out because' osv.log | sort -u | sed 's/^/- /' || true
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat osv.log
+          [ "$code" -eq 0 ] || cat osv.md
+          case "$code" in
+            0) ;;
+            1) echo "::error::osv-scanner found unaccepted vulnerabilities (see the job summary)"; exit 1 ;;
+            *) echo "::error::osv-scanner failed with exit code $code"; exit "$code" ;;
+          esac
+
+      - name: Upload SARIF to code scanning
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: osv.sarif
+          category: osv-scanner
+
+      - name: Scan examples (report only)
+        if: always()
+        run: |
+          set -uo pipefail
+          mapfile -t dirs < <(find . -type d \( -name examples -o -name Examples \) -not -path './.git/*' | sort)
+          code=0
+          osv-scanner scan source --recursive --no-ignore --config osv-scanner.toml \
+            --format markdown --output-file osv-examples.md "${dirs[@]}" 2>/dev/null || code=$?
+          {
+            echo "## osv-scanner: examples (report only, never fails)"
+            echo
+            if [ "$code" -eq 0 ]; then echo "No findings."; else cat osv-examples.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -eq 1 ]; then
+            echo "::warning::osv-scanner found vulnerabilities in example projects (report only; see the job summary)"
+          fi
+          exit 0

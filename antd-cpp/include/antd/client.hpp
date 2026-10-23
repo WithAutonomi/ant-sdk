@@ -12,6 +12,7 @@
 
 #include "discover.hpp"
 #include "errors.hpp"
+#include "manifests.hpp"
 #include "models.hpp"
 
 namespace antd {
@@ -198,6 +199,35 @@ public:
     /// Approve the wallet to spend tokens on payment contracts (one-time operation).
     bool wallet_approve();
 
+    // --- Manifests ---
+    //
+    // `.ant` manifests and `ant://` links (ADR-0006; needs antd 0.16.0
+    // or later). Nothing is uploaded or paid for. The `.ant` bytes are
+    // raw bytes here; the client handles REST's base64. See manifests.hpp for
+    // the types.
+
+    /// Builds a `.ant` manifest from DataMaps and public addresses already in
+    /// hand (POST /v1/manifests/build). Throws BadRequestError, before
+    /// sending, for an entry with both or neither of `data_map` and
+    /// `address`, and the daemon's BadRequestError (naming `entries[i]`) for
+    /// any other invalid entry or option. With the default options the
+    /// daemon resolves shrunk DataMaps over the network to embed their roots.
+    BuiltManifest build_manifest(const std::vector<ManifestEntryInput>& entries,
+                                 const BuildManifestOptions& options = {});
+
+    /// Decodes `.ant` bytes (POST /v1/manifests/decode). With `resolve`, the
+    /// daemon fetches each entry's DataMap (and wrapper records) to report
+    /// `exact_size` and confirm the DataMap is on the network; content chunks
+    /// are not fetched, and one entry's failure is reported in its `error`,
+    /// not as a failed call. Throws BadRequestError for empty or invalid
+    /// bytes.
+    DecodedManifest decode_manifest(const std::vector<uint8_t>& manifest,
+                                    bool resolve = false);
+
+    /// Decodes an `ant://` manifest link, file link or bare 64-hex address
+    /// (POST /v1/manifests/decode). See decode_manifest for `resolve`.
+    DecodedManifest decode_manifest_link(std::string_view link, bool resolve = false);
+
     // --- External Signer (Two-Phase Upload) ---
 
     /// Prepare a file upload for external signing.
@@ -265,6 +295,98 @@ public:
     FinalizeUploadResult finalize_merkle_upload(std::string_view upload_id,
                                                  std::string_view winner_pool_hash,
                                                  bool store_data_map = false);
+
+    // --- Pointers ---
+    //
+    // Owner-signed, paid, mutable references (antd 0.16.0 or
+    // later). The daemon signs with owner keys it loaded at startup
+    // (`antd --pointer-keys`); a write names the pointer by its address
+    // (`owner`), and an owner the daemon holds no key for is a
+    // BadRequestError.
+    //
+    // Every write pays, about the price of one chunk, and every attempt pays
+    // again: the SDK never retries pointer_create, pointer_update,
+    // pointer_transfer or pointer_finalize, and callers should not either
+    // without checking what landed first (pointer_get). Reads are free to
+    // retry; a read during an update or churn can throw
+    // CloseGroupShortfallError.
+
+    /// The pointers this daemon holds owner keys for (GET /v1/pointers/keys).
+    /// Only these can be written through this daemon.
+    std::vector<PointerKey> pointer_keys();
+
+    /// Creates the pointer at `owner`, pointing at `target`, paid by the
+    /// daemon wallet (POST /v1/pointers). Throws AlreadyExistsError, before
+    /// anything is paid, if the pointer exists; use pointer_update.
+    PointerWriteResult pointer_create(std::string_view owner, std::string_view target,
+                                      PointerKind kind = PointerKind::Chunk);
+
+    /// Points the pointer at `owner` at `target`, paid by the daemon wallet
+    /// (POST /v1/pointers/update). A pointer that does not exist yet is
+    /// created at counter 0. Throws PointerFinalError if the pointer has been
+    /// transferred or frozen (usually before anything is paid; see
+    /// PointerFinalError), and ConflictError if a prepared write to it awaits
+    /// payment (refused before paying) or the update lost to a newer state
+    /// while in flight (possibly after paying). Read the pointer before
+    /// writing again.
+    PointerWriteResult pointer_update(std::string_view owner, std::string_view target,
+                                      PointerKind kind = PointerKind::Chunk);
+
+    /// Hands the pointer at `owner` over to the pointer at `recipient`, for
+    /// good, paid by the daemon wallet (POST /v1/pointers/transfer). Readers
+    /// of the address are redirected to the recipient's pointer, which only
+    /// its owner can move. Irreversible once stored.
+    ///
+    /// Refused before paying if `recipient` does not exist or leads back
+    /// (BadRequestError), and usually if the pointer is already final
+    /// (PointerFinalError). A CloseGroupShortfallError means too few of the
+    /// close group answered or stored it. That can happen before paying (the
+    /// transfer checks every peer first) or after, so check the pointer with
+    /// pointer_finality before paying again.
+    PointerTransferResult pointer_transfer(std::string_view owner, std::string_view recipient);
+
+    /// Reads the pointer at `address` (GET /v1/pointers/{address}). Throws
+    /// NotFoundError if there is none.
+    PointerRecord pointer_get(std::string_view address);
+
+    /// Follows a chain of pointers from `address` to the target at its end
+    /// (GET /v1/pointers/{address}/resolve), through forwardings and
+    /// transfers alike. Throws NotFoundError if a pointer on the chain does
+    /// not exist.
+    PointerTarget pointer_resolve(std::string_view address);
+
+    /// Asks the whole close group where the pointer at `address` stands
+    /// (GET /v1/pointers/{address}/finality). Check it before relying on a
+    /// transfer: only PointerFinalityStatus::Final means one final state,
+    /// held by a majority, with no rival seen.
+    PointerFinality pointer_finality(std::string_view address);
+
+    /// Follows the transfers of the pointer at `address` to the pointer whose
+    /// owner now decides what it resolves to
+    /// (GET /v1/pointers/{address}/controller).
+    PointerController pointer_controller(std::string_view address);
+
+    /// Has the daemon sign a write with its loaded owner key and quote it for
+    /// an external signer (POST /v1/pointers/prepare). Pay
+    /// PointerPrepareResult::payments with payForQuotes(), then call
+    /// pointer_finalize. Needs no daemon wallet. Every check the daemon-wallet
+    /// methods make before paying is made here, before anything is quoted.
+    /// While the prepared write awaits payment, other writes to the pointer
+    /// throw ConflictError until it is finalized or expires (one hour).
+    PointerPrepareResult pointer_prepare(const PointerPrepareRequest& req);
+
+    /// Stores a prepared pointer write once its external signer has paid
+    /// (POST /v1/pointers/finalize). `tx_hashes` maps each `quote_hash` from
+    /// the prepare's payments to the payForQuotes() transaction hash.
+    ///
+    /// A write that falls short after payment throws CloseGroupShortfallError
+    /// with `retryable == true`: the daemon kept the paid state under the
+    /// same `upload_id`, and calling this again with the same `upload_id`
+    /// stores it against the same payment (`tx_hashes` is then ignored).
+    /// Bound that loop. A finalize without the payment's hashes is a
+    /// BadRequestError and keeps the session, so it can be corrected.
+    PointerFinalizeResult pointer_finalize(std::string_view upload_id,
+                                           const std::map<std::string, std::string>& tx_hashes);
 
 private:
     struct Impl;

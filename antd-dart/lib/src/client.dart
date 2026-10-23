@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'discover.dart';
 import 'errors.dart';
+import 'manifests.dart';
 import 'models.dart';
 
 /// Default base URL for the antd daemon.
@@ -480,6 +481,93 @@ class AntdClient {
     return UploadCostEstimate.fromJson(json!);
   }
 
+  // --- Manifests ---
+  //
+  // ADR-0006 `.ant` manifests and `ant://` links. Nothing is uploaded or
+  // paid for. REST carries the `.ant` bytes as base64; these methods take
+  // and return raw bytes.
+
+  /// Builds a `.ant` manifest from DataMaps and public addresses already in
+  /// hand, via `POST /v1/manifests/build`. Nothing is uploaded or paid for.
+  ///
+  /// Each entry needs exactly one of `dataMap` or `address`; an entry with
+  /// both or neither throws a [BadRequestError] before anything is sent. The
+  /// daemon checks the rest (hex, paths, sizes) and names every invalid
+  /// entry (`entries[i]: ...`) in a [BadRequestError].
+  ///
+  /// [name] is a suggested root directory name (one portable path
+  /// component). [torrentInfoHashes] are BitTorrent info hashes of the same
+  /// files: hex, 40 characters for v1 and/or 64 for v2. With [embedRoots]
+  /// (the default) the daemon resolves each shrunk DataMap's root, fetching
+  /// its wrapper records, and embeds the root when it is at most 64 KiB, so
+  /// recipients skip that fetch (ADR-0006's policy); `false` embeds shrunk
+  /// DataMaps exactly as given. That resolution reads from the network, so
+  /// the call can time out; it is safe to retry.
+  ///
+  /// Requires antd 0.16.0 or later.
+  Future<BuiltManifest> buildManifest(
+    List<ManifestEntryInput> entries, {
+    String? name,
+    List<String>? torrentInfoHashes,
+    bool embedRoots = true,
+  }) async {
+    checkManifestEntries(entries);
+    final json = await _doJson('POST', '/v1/manifests/build', {
+      'entries': [for (final e in entries) e.toJson()],
+      'embed_roots': embedRoots,
+      if (name != null && name.isNotEmpty) 'name': name,
+      if (torrentInfoHashes != null && torrentInfoHashes.isNotEmpty)
+        'torrent_info_hashes': torrentInfoHashes,
+    });
+    return BuiltManifest.fromJson(json!);
+  }
+
+  /// Decodes `.ant` bytes via `POST /v1/manifests/decode`. Nothing is
+  /// uploaded or paid for.
+  ///
+  /// With [resolve], the daemon fetches each entry's DataMap (and wrapper
+  /// records) to report [ManifestEntryInfo.exactSize] and confirm the
+  /// DataMap is on the network; content chunks are not fetched, and one
+  /// entry's failure is reported in its [ManifestEntryInfo.error], not as a
+  /// failed call. Resolving reads from the network, so the call can time
+  /// out; it is safe to retry. Bytes that are not a manifest throw
+  /// [BadRequestError].
+  ///
+  /// Requires antd 0.16.0 or later.
+  Future<DecodedManifest> decodeManifest(
+    Uint8List manifest, {
+    bool resolve = false,
+  }) async {
+    if (manifest.isEmpty) {
+      throw const BadRequestError(manifestDecodeEmptyMessage);
+    }
+    final json = await _doJson('POST', '/v1/manifests/decode', {
+      'manifest': _b64Encode(manifest),
+      'resolve': resolve,
+    });
+    return DecodedManifest.fromJson(json!);
+  }
+
+  /// Decodes an `ant://` manifest link, file link or bare 64-hex address via
+  /// `POST /v1/manifests/decode`. A file link or bare address reads as
+  /// [DecodedManifest.source] `"file_link"`: one public entry with no path.
+  /// See [decodeManifest] for [resolve].
+  ///
+  /// Requires antd 0.16.0 or later.
+  Future<DecodedManifest> decodeManifestLink(
+    String link, {
+    bool resolve = false,
+  }) async {
+    if (link.isEmpty) {
+      throw const BadRequestError(manifestDecodeEmptyMessage);
+    }
+    final json = await _doJson('POST', '/v1/manifests/decode', {
+      'link': link,
+      'resolve': resolve,
+    });
+    return DecodedManifest.fromJson(json!);
+  }
+
   // --- Wallet ---
 
   /// Returns the wallet address configured on the daemon.
@@ -599,5 +687,165 @@ class AntdClient {
       'store_data_map': storeDataMap,
     });
     return FinalizeUploadResult.fromJson(json!);
+  }
+
+  // --- Pointers ---
+  //
+  // Owner-signed, paid, mutable references (needs antd 0.16.0 or
+  // later, the first release with pointers). A pointer's address is derived from
+  // its owner's key and never changes; what it points at can be updated by
+  // the owner, who can also hand it over to another pointer for good.
+  //
+  // The daemon signs with owner keys it loaded at startup (`--pointer-keys`):
+  // writes name the pointer by its address (`owner`), and [pointerKeys] lists
+  // the ones it can write.
+  //
+  // Every write pays, about the price of one chunk, and every attempt pays
+  // again. This client never retries a request, and callers must not retry
+  // pointerCreate, pointerUpdate, pointerTransfer or pointerFinalize
+  // automatically (pointerFinalize only on a retryable
+  // CloseGroupShortfallError). Reads are free to retry.
+
+  String _pointerPath(String address, [String suffix = '']) =>
+      '/v1/pointers/${Uri.encodeComponent(address)}$suffix';
+
+  /// Returns the addresses of the pointers this daemon holds owner keys for.
+  /// Only these can be written.
+  Future<List<String>> pointerKeys() async {
+    final json = await _doJson('GET', '/v1/pointers/keys');
+    return [
+      for (final key in json!['keys'] as List<dynamic>? ?? const [])
+        (key as Map<String, dynamic>)['address'] as String? ?? '',
+    ];
+  }
+
+  /// Creates the pointer at [owner], pointing at [target], paid by the daemon
+  /// wallet. Throws [AlreadyExistsError], before paying, if it exists.
+  ///
+  /// Pays for the write: do not retry it automatically.
+  Future<PointerWriteResult> pointerCreate(
+    String owner,
+    String target, {
+    PointerKind kind = PointerKind.chunk,
+  }) async {
+    final json = await _doJson('POST', '/v1/pointers', {
+      'owner': owner,
+      'target': target,
+      'kind': kind.wire,
+    });
+    return PointerWriteResult.fromJson(json!);
+  }
+
+  /// Points the pointer at [owner] at [target], paid by the daemon wallet,
+  /// creating it if it does not exist. Throws [PointerFinalError] if the
+  /// pointer was handed over or frozen (usually before paying; see
+  /// [PointerFinalError]), and [ConflictError] if a prepared write to it
+  /// awaits payment (refused before paying) or the update lost to a newer
+  /// state while in flight (possibly after paying). Read the pointer before
+  /// writing again.
+  ///
+  /// Pays for the write: do not retry it automatically.
+  Future<PointerWriteResult> pointerUpdate(
+    String owner,
+    String target, {
+    PointerKind kind = PointerKind.chunk,
+  }) async {
+    final json = await _doJson('POST', '/v1/pointers/update', {
+      'owner': owner,
+      'target': target,
+      'kind': kind.wire,
+    });
+    return PointerWriteResult.fromJson(json!);
+  }
+
+  /// Hands the pointer at [owner] over to the pointer at [recipient], for
+  /// good, paid by the daemon wallet. Readers of [owner]'s address are
+  /// redirected to the recipient's pointer, which only its owner can move.
+  /// Irreversible once stored.
+  ///
+  /// Refused before paying if [recipient] does not exist or leads back
+  /// ([BadRequestError]), and usually if the pointer is already final
+  /// ([PointerFinalError]). A [CloseGroupShortfallError] means too few of the
+  /// close group answered or stored it. That can happen before paying (the
+  /// transfer checks every peer first) or after, so check the pointer with
+  /// [pointerFinality] before paying again.
+  ///
+  /// Pays for the write: do not retry it automatically.
+  Future<PointerTransferResult> pointerTransfer(
+    String owner,
+    String recipient,
+  ) async {
+    final json = await _doJson('POST', '/v1/pointers/transfer', {
+      'owner': owner,
+      'recipient': recipient,
+    });
+    return PointerTransferResult.fromJson(json!);
+  }
+
+  /// Reads the pointer at [address]. Throws [NotFoundError] if no pointer
+  /// exists there.
+  Future<PointerRecord> pointerGet(String address) async {
+    final json = await _doJson('GET', _pointerPath(address));
+    return PointerRecord.fromJson(json!);
+  }
+
+  /// Follows a chain of pointers from [address] to the target at its end (at
+  /// most 16 hops). Throws [NotFoundError] if a pointer on the chain does not
+  /// exist.
+  Future<PointerTarget> pointerResolve(String address) async {
+    final json = await _doJson('GET', _pointerPath(address, '/resolve'));
+    return PointerTarget.fromJson(json!);
+  }
+
+  /// Asks the whole close group where the pointer at [address] stands. Check
+  /// it before relying on a transfer: only [PointerFinality.isFinal] means
+  /// the transfer is beyond dispute.
+  Future<PointerFinality> pointerFinality(String address) async {
+    final json = await _doJson('GET', _pointerPath(address, '/finality'));
+    return PointerFinality.fromJson(json!);
+  }
+
+  /// Follows the transfers from [address] to the pointer whose owner now
+  /// decides what it resolves to.
+  Future<PointerController> pointerController(String address) async {
+    final json = await _doJson('GET', _pointerPath(address, '/controller'));
+    return PointerController.fromJson(json!);
+  }
+
+  /// Signs a pointer write with the daemon's loaded owner key and quotes it
+  /// for an external signer, which pays with `payForQuotes()` and then calls
+  /// [pointerFinalize]. The daemon needs no wallet.
+  ///
+  /// While the prepared write awaits payment, other writes to the same
+  /// pointer throw [ConflictError], until it is finalized or expires (one
+  /// hour).
+  Future<PointerPrepareResult> pointerPrepare(
+    PointerPrepareRequest request,
+  ) async {
+    final json =
+        await _doJson('POST', '/v1/pointers/prepare', request.toJson());
+    return PointerPrepareResult.fromJson(json!);
+  }
+
+  /// Stores a prepared pointer write once its external signer has paid.
+  /// [txHashes] maps each quote hash from [pointerPrepare]'s
+  /// [PointerPrepareResult.payments] to the `payForQuotes()` transaction
+  /// hash.
+  ///
+  /// A write that falls short after payment throws a
+  /// [CloseGroupShortfallError] with [CloseGroupShortfallError.retryable] set:
+  /// the daemon kept the paid state, so call this again with the same
+  /// [uploadId] ([txHashes] is then ignored) to store it against the same
+  /// payment. Bound that loop; the session expires with the daemon's
+  /// one-hour pending TTL. Never repeat it on any other error.
+  Future<PointerFinalizeResult> pointerFinalize(
+    String uploadId,
+    Map<String, String> txHashes,
+  ) async {
+    final json = await _doJson('POST', '/v1/pointers/finalize', {
+      'upload_id': uploadId,
+      'tx_hashes': txHashes,
+    });
+    return PointerFinalizeResult.fromJson(json!);
   }
 }

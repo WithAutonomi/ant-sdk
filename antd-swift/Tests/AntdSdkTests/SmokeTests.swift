@@ -554,12 +554,19 @@ final class StubURLProtocol: URLProtocol {
     /// Path → raw bytes to stream back (non-JSON). Takes precedence over
     /// `routes` when set; used by the streaming tests.
     static var rawRoutes: [String: Data] = [:]
+    /// Path → HTTP method of the most recent request.
+    static var lastMethods: [String: String] = [:]
+    /// Path → number of requests seen (the pointer tests check that a paid
+    /// write is sent exactly once).
+    static var requestCounts: [String: Int] = [:]
 
     static func reset() {
         routes = [:]
         lastBodies = [:]
         statuses = [:]
         rawRoutes = [:]
+        lastMethods = [:]
+        requestCounts = [:]
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -568,6 +575,8 @@ final class StubURLProtocol: URLProtocol {
     override func startLoading() {
         let url = request.url!
         let path = url.path
+        StubURLProtocol.lastMethods[path] = request.httpMethod ?? "GET"
+        StubURLProtocol.requestCounts[path, default: 0] += 1
 
         // URLSession on Linux moves the body off NSURLRequest into a stream;
         // read it back through httpBodyStream when httpBody is nil.
@@ -1204,6 +1213,26 @@ final class DataStreamTests: XCTestCase {
         } catch let error as NotFoundError {
             XCTAssertEqual(error.message, "data map not found")
             XCTAssertEqual(error.statusCode, 404)
+        }
+    }
+
+    /// The envelope's `code` reaches the mapper on the streaming path too: a
+    /// 503 `CLOSE_GROUP_SHORTFALL` is a CloseGroupShortfallError, not the
+    /// ServiceUnavailableError its status alone would give.
+    func testDataStreamMapsCloseGroupShortfallCode() async throws {
+        StubURLProtocol.statuses["/v1/data/stream"] = 503
+        StubURLProtocol.rawRoutes["/v1/data/stream"] = Data(
+            #"{"error":"Close group shortfall: 3/7","code":"CLOSE_GROUP_SHORTFALL"}"#.utf8
+        )
+
+        let client = makeClient()
+        do {
+            let stream = try await client.dataStream(dataMap: "dm")
+            _ = try await collect(stream)
+            XCTFail("expected dataStream to throw on 503")
+        } catch let error as CloseGroupShortfallError {
+            XCTAssertEqual(error.message, "Close group shortfall: 3/7")
+            XCTAssertEqual(error.statusCode, 503)
         }
     }
 

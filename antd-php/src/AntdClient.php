@@ -18,9 +18,23 @@ use Autonomi\Antd\Models\FinalizeUploadResult;
 use Autonomi\Antd\Models\HealthStatus;
 use Autonomi\Antd\Models\PaymentInfo;
 use Autonomi\Antd\Models\PaymentMode;
+use Autonomi\Antd\Models\PointerController;
+use Autonomi\Antd\Models\PointerCounter;
+use Autonomi\Antd\Models\PointerFinalState;
+use Autonomi\Antd\Models\PointerFinality;
+use Autonomi\Antd\Models\PointerFinalityStatus;
+use Autonomi\Antd\Models\PointerFinalizeResult;
+use Autonomi\Antd\Models\PointerPrepareRequest;
+use Autonomi\Antd\Models\PointerPrepareResult;
+use Autonomi\Antd\Models\PointerRecord;
+use Autonomi\Antd\Models\PointerTarget;
+use Autonomi\Antd\Models\PointerTargetKind;
+use Autonomi\Antd\Models\PointerTransferResult;
+use Autonomi\Antd\Models\PointerWriteResult;
 use Autonomi\Antd\Models\PrepareChunkResult;
 use Autonomi\Antd\Models\PrepareUploadResult;
 use Autonomi\Antd\Models\PutResult;
+use Autonomi\Antd\Models\SignedQuoteEntry;
 use Autonomi\Antd\Models\UploadCostEstimate;
 
 /**
@@ -34,6 +48,9 @@ use Autonomi\Antd\Models\UploadCostEstimate;
  */
 class AntdClient
 {
+    // buildManifest(), decodeManifest(), decodeManifestLink() and their Async variants.
+    use ManifestMethods;
+
     private Client $http;
     private string $baseUrl;
 
@@ -1036,6 +1053,575 @@ class AntdClient
             'tx_hashes' => (object) $txHashes,
         ])->then(
             fn(?array $json) => (string)($json['address'] ?? ''),
+        );
+    }
+
+    // --- Pointers ---
+    //
+    // A pointer is a small, owner-signed, mutable reference. Its address is
+    // derived from the owner's key and never changes; what it points at (a
+    // chunk, such as public data's data map, or another pointer) can be
+    // changed by the owner, and the owner can hand it over to another pointer
+    // for good. The daemon signs with owner keys it loaded at startup
+    // (`antd --pointer-keys`), so a write names the pointer by its address
+    // (`$owner`) and no key crosses the API. pointerKeys() lists the pointers
+    // the daemon can write.
+    //
+    // Every write pays (about the price of one chunk) and every attempt pays
+    // again, so this client never retries pointerCreate(), pointerUpdate(),
+    // pointerTransfer() or pointerFinalize(), and callers should not retry
+    // them automatically either. Reads are free to retry; a
+    // CloseGroupShortfallError on a read usually clears once an update in
+    // flight settles.
+    //
+    // Counters are canonical decimal strings, not ints: a final state sits at
+    // 2^64 - 1, past PHP's signed int (see PointerCounter).
+
+    /**
+     * The addresses of the pointers this daemon holds owner keys for
+     * (`GET /v1/pointers/keys`). Only these can be written through it.
+     *
+     * @return list<string>
+     */
+    public function pointerKeys(): array
+    {
+        return self::parsePointerKeys($this->doJson('GET', '/v1/pointers/keys'));
+    }
+
+    /**
+     * Async: the addresses of the pointers this daemon holds owner keys for.
+     *
+     * @return PromiseInterface<list<string>>
+     */
+    public function pointerKeysAsync(): PromiseInterface
+    {
+        return $this->doJsonAsync('GET', '/v1/pointers/keys')->then(
+            fn(?array $json) => self::parsePointerKeys($json),
+        );
+    }
+
+    /**
+     * Create the pointer at `$owner`, pointing at `$target`, paid by the
+     * daemon wallet (`POST /v1/pointers`). `$owner` is the pointer's address;
+     * the daemon must hold its key ({@see pointerKeys()}), or the call is a
+     * {@see \Autonomi\Antd\Errors\BadRequestError}. A null `$kind` leaves the
+     * daemon's default, {@see PointerTargetKind::Chunk}.
+     *
+     * Pays for the write. Not retried automatically: every attempt pays again.
+     *
+     * @throws \Autonomi\Antd\Errors\AlreadyExistsError if the pointer exists, before paying; use pointerUpdate().
+     * @throws \Autonomi\Antd\Errors\ConflictError while a prepared write to the pointer awaits payment.
+     */
+    public function pointerCreate(string $owner, string $target, ?PointerTargetKind $kind = null): PointerWriteResult
+    {
+        return self::parsePointerWrite(
+            $this->doJson('POST', '/v1/pointers', self::pointerWriteBody($owner, $target, $kind)),
+        );
+    }
+
+    /**
+     * Async: create a pointer, paid by the daemon wallet. Pays; not retried.
+     *
+     * @return PromiseInterface<PointerWriteResult>
+     */
+    public function pointerCreateAsync(string $owner, string $target, ?PointerTargetKind $kind = null): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/pointers', self::pointerWriteBody($owner, $target, $kind))->then(
+            fn(?array $json) => self::parsePointerWrite($json),
+        );
+    }
+
+    /**
+     * Point the pointer at `$owner` at `$target`, paid by the daemon wallet
+     * (`POST /v1/pointers/update`). A pointer that does not exist yet is
+     * created at counter "0". A null `$kind` leaves the daemon's default,
+     * {@see PointerTargetKind::Chunk}.
+     *
+     * Pays for the write. Not retried automatically: every attempt pays again.
+     *
+     * @throws \Autonomi\Antd\Errors\PointerFinalError if the pointer was handed over or frozen, usually before paying.
+     * @throws \Autonomi\Antd\Errors\ConflictError while a prepared write to the pointer awaits payment (refused before
+     *         paying), or if the update lost to a newer state while in flight (possibly after paying). Read the pointer
+     *         before writing again.
+     */
+    public function pointerUpdate(string $owner, string $target, ?PointerTargetKind $kind = null): PointerWriteResult
+    {
+        return self::parsePointerWrite(
+            $this->doJson('POST', '/v1/pointers/update', self::pointerWriteBody($owner, $target, $kind)),
+        );
+    }
+
+    /**
+     * Async: point a pointer at a new target, paid by the daemon wallet.
+     * Pays; not retried.
+     *
+     * @return PromiseInterface<PointerWriteResult>
+     */
+    public function pointerUpdateAsync(string $owner, string $target, ?PointerTargetKind $kind = null): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/pointers/update', self::pointerWriteBody($owner, $target, $kind))->then(
+            fn(?array $json) => self::parsePointerWrite($json),
+        );
+    }
+
+    /**
+     * Hand the pointer at `$owner` over to the pointer at `$recipient`, for
+     * good, paid by the daemon wallet (`POST /v1/pointers/transfer`). Readers
+     * of `$owner`'s address are redirected to the recipient's pointer, which
+     * only its owner can move. Irreversible once stored.
+     *
+     * Refused before paying if `$recipient` does not exist or leads back
+     * ({@see \Autonomi\Antd\Errors\BadRequestError}), and usually if the
+     * pointer is already final ({@see \Autonomi\Antd\Errors\PointerFinalError}).
+     * A {@see \Autonomi\Antd\Errors\CloseGroupShortfallError} means too few of
+     * the close group answered or stored it. That can happen before paying (the
+     * transfer checks every peer first) or after, so check the pointer with
+     * {@see pointerFinality()} before paying again.
+     *
+     * Pays for the write. Not retried automatically: every attempt pays again.
+     */
+    public function pointerTransfer(string $owner, string $recipient): PointerTransferResult
+    {
+        return self::parsePointerTransfer($this->doJson('POST', '/v1/pointers/transfer', [
+            'owner' => $owner,
+            'recipient' => $recipient,
+        ]));
+    }
+
+    /**
+     * Async: hand a pointer over for good, paid by the daemon wallet.
+     * Pays; not retried.
+     *
+     * @return PromiseInterface<PointerTransferResult>
+     */
+    public function pointerTransferAsync(string $owner, string $recipient): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/pointers/transfer', [
+            'owner' => $owner,
+            'recipient' => $recipient,
+        ])->then(
+            fn(?array $json) => self::parsePointerTransfer($json),
+        );
+    }
+
+    /**
+     * Read the pointer at `$address` (`GET /v1/pointers/{address}`).
+     *
+     * @throws \Autonomi\Antd\Errors\NotFoundError if there is no pointer there.
+     * @throws \UnexpectedValueException if the daemon's counter is not a decimal u64.
+     */
+    public function pointerGet(string $address): PointerRecord
+    {
+        return self::parsePointerRecord($this->doJson('GET', self::pointerPath($address)));
+    }
+
+    /**
+     * Async: read the pointer at `$address`.
+     *
+     * @return PromiseInterface<PointerRecord>
+     */
+    public function pointerGetAsync(string $address): PromiseInterface
+    {
+        return $this->doJsonAsync('GET', self::pointerPath($address))->then(
+            fn(?array $json) => self::parsePointerRecord($json),
+        );
+    }
+
+    /**
+     * Follow a chain of pointers from `$address` to the target at its end
+     * (`GET /v1/pointers/{address}/resolve`), through forwardings and
+     * transfers alike.
+     *
+     * @throws \Autonomi\Antd\Errors\NotFoundError if a pointer on the chain does not exist.
+     */
+    public function pointerResolve(string $address): PointerTarget
+    {
+        return self::parsePointerTarget($this->doJson('GET', self::pointerPath($address, 'resolve')));
+    }
+
+    /**
+     * Async: follow a chain of pointers to the target at its end.
+     *
+     * @return PromiseInterface<PointerTarget>
+     */
+    public function pointerResolveAsync(string $address): PromiseInterface
+    {
+        return $this->doJsonAsync('GET', self::pointerPath($address, 'resolve'))->then(
+            fn(?array $json) => self::parsePointerTarget($json),
+        );
+    }
+
+    /**
+     * Ask the whole close group where the pointer at `$address` stands
+     * (`GET /v1/pointers/{address}/finality`). Check this before relying on a
+     * transfer: only {@see PointerFinalityStatus::Final}
+     * ({@see PointerFinality::isFinal()}) means it is beyond dispute.
+     */
+    public function pointerFinality(string $address): PointerFinality
+    {
+        return self::parsePointerFinality($this->doJson('GET', self::pointerPath($address, 'finality')) ?? []);
+    }
+
+    /**
+     * Async: ask the whole close group where a pointer stands.
+     *
+     * @return PromiseInterface<PointerFinality>
+     */
+    public function pointerFinalityAsync(string $address): PromiseInterface
+    {
+        return $this->doJsonAsync('GET', self::pointerPath($address, 'finality'))->then(
+            fn(?array $json) => self::parsePointerFinality($json ?? []),
+        );
+    }
+
+    /**
+     * Follow the transfers of the pointer at `$address` to the pointer whose
+     * owner now decides what it resolves to
+     * (`GET /v1/pointers/{address}/controller`).
+     */
+    public function pointerController(string $address): PointerController
+    {
+        return self::parsePointerController($this->doJson('GET', self::pointerPath($address, 'controller')));
+    }
+
+    /**
+     * Async: follow transfers to the pointer whose owner now decides.
+     *
+     * @return PromiseInterface<PointerController>
+     */
+    public function pointerControllerAsync(string $address): PromiseInterface
+    {
+        return $this->doJsonAsync('GET', self::pointerPath($address, 'controller'))->then(
+            fn(?array $json) => self::parsePointerController($json),
+        );
+    }
+
+    /**
+     * Have the daemon sign a pointer write with its loaded owner key and
+     * quote it for an external signer (`POST /v1/pointers/prepare`). Pay
+     * {@see PointerPrepareResult::$payments} with `payForQuotes()`, then call
+     * {@see pointerFinalize()}. Needs no daemon wallet, and pays nothing
+     * itself.
+     *
+     * Every check the daemon-wallet methods make before paying is made here,
+     * before anything is quoted. While the prepared write awaits payment,
+     * other writes to the pointer throw
+     * {@see \Autonomi\Antd\Errors\ConflictError} until it is finalized or
+     * expires (one hour).
+     *
+     * Set {@see PointerPrepareRequest::$includeSignedQuotes} to also get the
+     * full signed quotes in {@see PointerPrepareResult::$signedQuotes}.
+     */
+    public function pointerPrepare(PointerPrepareRequest $request): PointerPrepareResult
+    {
+        return self::parsePointerPrepare($this->doJson('POST', '/v1/pointers/prepare', $request->toArray()));
+    }
+
+    /**
+     * Async: sign and quote a pointer write for an external signer.
+     *
+     * @return PromiseInterface<PointerPrepareResult>
+     */
+    public function pointerPrepareAsync(PointerPrepareRequest $request): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/pointers/prepare', $request->toArray())->then(
+            fn(?array $json) => self::parsePointerPrepare($json),
+        );
+    }
+
+    /**
+     * Store a prepared pointer write once its external signer has paid
+     * (`POST /v1/pointers/finalize`).
+     *
+     * A write that falls short after payment throws
+     * {@see \Autonomi\Antd\Errors\CloseGroupShortfallError} with `retryable`
+     * set: the daemon kept the paid state under the same `$uploadId`, so
+     * calling this method again with the same `$uploadId` stores it against
+     * the same payment (`$txHashes` is then ignored). Bound that loop; the
+     * session expires with the daemon's one-hour pending TTL. This client
+     * never repeats the call itself. A finalize without the payment's hashes
+     * is a {@see \Autonomi\Antd\Errors\BadRequestError} and keeps the
+     * session, so it can be corrected.
+     *
+     * @param string $uploadId The upload ID from pointerPrepare().
+     * @param array<string, string> $txHashes Map of quote_hash to the payForQuotes() tx_hash.
+     */
+    public function pointerFinalize(string $uploadId, array $txHashes): PointerFinalizeResult
+    {
+        return self::parsePointerFinalize($this->doJson('POST', '/v1/pointers/finalize', [
+            'upload_id' => $uploadId,
+            'tx_hashes' => (object) $txHashes,
+        ]));
+    }
+
+    /**
+     * Async: store a prepared pointer write once paid. Not retried; see
+     * {@see pointerFinalize()} for the same-payment retry contract.
+     *
+     * @param string $uploadId The upload ID from pointerPrepare().
+     * @param array<string, string> $txHashes Map of quote_hash to the payForQuotes() tx_hash.
+     * @return PromiseInterface<PointerFinalizeResult>
+     */
+    public function pointerFinalizeAsync(string $uploadId, array $txHashes): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/pointers/finalize', [
+            'upload_id' => $uploadId,
+            'tx_hashes' => (object) $txHashes,
+        ])->then(
+            fn(?array $json) => self::parsePointerFinalize($json),
+        );
+    }
+
+    // --- Pointer parsing helpers ---
+    //
+    // Fields are read strictly: a value of the wrong JSON type reads as the
+    // field's empty value ('' / 0 / false / null), except a counter, which
+    // must be a decimal u64 string or the call throws.
+
+    private static function pointerPath(string $address, string $suffix = ''): string
+    {
+        return '/v1/pointers/' . rawurlencode($address) . ($suffix === '' ? '' : '/' . $suffix);
+    }
+
+    /** @return array<string, string> */
+    private static function pointerWriteBody(string $owner, string $target, ?PointerTargetKind $kind): array
+    {
+        $body = ['owner' => $owner, 'target' => $target];
+        if ($kind !== null) {
+            $body['kind'] = $kind->value;
+        }
+        return $body;
+    }
+
+    /** @param array<mixed> $json */
+    private static function ptrStr(array $json, string $key): string
+    {
+        $value = $json[$key] ?? null;
+        return is_string($value) ? $value : '';
+    }
+
+    /**
+     * An optional string: null when absent, null (REST's unset) or empty.
+     *
+     * @param array<mixed> $json
+     */
+    private static function ptrOptStr(array $json, string $key): ?string
+    {
+        $value = $json[$key] ?? null;
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /** @param array<mixed> $json */
+    private static function ptrUint(array $json, string $key): int
+    {
+        $value = $json[$key] ?? null;
+        return is_int($value) && $value >= 0 ? $value : 0;
+    }
+
+    /**
+     * The raw target kind tag, or 255 (no kind) when it is missing or not a
+     * u8, so a garbled tag never reads as a chunk.
+     *
+     * @param array<mixed> $json
+     */
+    private static function ptrKindTag(array $json): int
+    {
+        $value = $json['kind_tag'] ?? null;
+        return is_int($value) && $value >= 0 && $value <= 255 ? $value : 255;
+    }
+
+    /** @param array<mixed> $json */
+    private static function ptrCounter(array $json, string $key): string
+    {
+        return PointerCounter::parse($json[$key] ?? null, $key);
+    }
+
+    /**
+     * @param array<mixed>|null $json
+     * @return list<string>
+     */
+    private static function parsePointerKeys(?array $json): array
+    {
+        $keys = [];
+        $entries = $json['keys'] ?? null;
+        foreach (is_array($entries) ? $entries : [] as $entry) {
+            if (is_array($entry) && is_string($entry['address'] ?? null)) {
+                $keys[] = $entry['address'];
+            }
+        }
+        return $keys;
+    }
+
+    /** @param array<mixed>|null $json */
+    private static function parsePointerWrite(?array $json): PointerWriteResult
+    {
+        $json ??= [];
+        return new PointerWriteResult(
+            address: self::ptrStr($json, 'address'),
+            stateId: self::ptrStr($json, 'state_id'),
+            counter: self::ptrCounter($json, 'counter'),
+        );
+    }
+
+    /** @param array<mixed>|null $json */
+    private static function parsePointerRecord(?array $json): PointerRecord
+    {
+        $json ??= [];
+        return new PointerRecord(
+            address: self::ptrStr($json, 'address'),
+            owner: self::ptrStr($json, 'owner'),
+            counter: self::ptrCounter($json, 'counter'),
+            kind: self::ptrStr($json, 'kind'),
+            kindTag: self::ptrKindTag($json),
+            target: self::ptrStr($json, 'target'),
+            stateId: self::ptrStr($json, 'state_id'),
+            isFinal: ($json['is_final'] ?? null) === true,
+            transferredTo: self::ptrOptStr($json, 'transferred_to'),
+        );
+    }
+
+    /** @param array<mixed>|null $json */
+    private static function parsePointerTarget(?array $json): PointerTarget
+    {
+        $json ??= [];
+        return new PointerTarget(
+            kind: self::ptrStr($json, 'kind'),
+            kindTag: self::ptrKindTag($json),
+            target: self::ptrStr($json, 'target'),
+        );
+    }
+
+    /** @param array<mixed> $json */
+    private static function parsePointerFinalState(array $json): PointerFinalState
+    {
+        return new PointerFinalState(
+            stateId: self::ptrStr($json, 'state_id'),
+            kind: self::ptrStr($json, 'kind'),
+            kindTag: self::ptrKindTag($json),
+            target: self::ptrStr($json, 'target'),
+            holders: self::ptrUint($json, 'holders'),
+            transferredTo: self::ptrOptStr($json, 'transferred_to'),
+        );
+    }
+
+    /**
+     * Parse a finality answer. Its `counter` is optional (null, absent or
+     * "" when no state is corroborated), but a present one must be a decimal
+     * u64 string, like every other counter.
+     *
+     * @param array<mixed> $json
+     */
+    private static function parsePointerFinality(array $json): PointerFinality
+    {
+        $counter = $json['counter'] ?? null;
+        $states = [];
+        $rawStates = $json['states'] ?? null;
+        foreach (is_array($rawStates) ? $rawStates : [] as $state) {
+            if (is_array($state)) {
+                $states[] = self::parsePointerFinalState($state);
+            }
+        }
+        $state = $json['state'] ?? null;
+        $majority = $json['majority'] ?? null;
+        $rawStatus = self::ptrStr($json, 'status');
+        return new PointerFinality(
+            address: self::ptrStr($json, 'address'),
+            group: self::ptrUint($json, 'group'),
+            answered: self::ptrUint($json, 'answered'),
+            status: PointerFinalityStatus::fromWire($rawStatus),
+            rawStatus: $rawStatus,
+            counter: $counter === null || $counter === '' ? null : PointerCounter::parse($counter, 'counter'),
+            state: is_array($state) ? self::parsePointerFinalState($state) : null,
+            states: $states,
+            majority: is_array($majority) ? self::parsePointerFinalState($majority) : null,
+            transferredTo: self::ptrOptStr($json, 'transferred_to'),
+        );
+    }
+
+    /** @param array<mixed>|null $json */
+    private static function parsePointerController(?array $json): PointerController
+    {
+        $json ??= [];
+        $transfers = [];
+        $raw = $json['transfers'] ?? null;
+        foreach (is_array($raw) ? $raw : [] as $address) {
+            if (is_string($address)) {
+                $transfers[] = $address;
+            }
+        }
+        return new PointerController(
+            pointer: self::ptrStr($json, 'pointer'),
+            transfers: $transfers,
+            frozen: ($json['frozen'] ?? null) === true,
+        );
+    }
+
+    /** @param array<mixed>|null $json */
+    private static function parsePointerTransfer(?array $json): PointerTransferResult
+    {
+        $json ??= [];
+        $finality = $json['finality'] ?? null;
+        return new PointerTransferResult(
+            address: self::ptrStr($json, 'address'),
+            stateId: self::ptrStr($json, 'state_id'),
+            finality: is_array($finality) ? self::parsePointerFinality($finality) : null,
+            finalityError: self::ptrOptStr($json, 'finality_error'),
+        );
+    }
+
+    /** @param array<mixed>|null $json */
+    private static function parsePointerPrepare(?array $json): PointerPrepareResult
+    {
+        $json ??= [];
+        $payments = [];
+        $raw = $json['payments'] ?? null;
+        foreach (is_array($raw) ? $raw : [] as $p) {
+            if (is_array($p)) {
+                $payments[] = new PaymentInfo(
+                    quoteHash: self::ptrStr($p, 'quote_hash'),
+                    rewardsAddress: self::ptrStr($p, 'rewards_address'),
+                    amount: self::ptrStr($p, 'amount'),
+                );
+            }
+        }
+        $signedQuotes = [];
+        $rawQuotes = $json['signed_quotes'] ?? null;
+        foreach (is_array($rawQuotes) ? $rawQuotes : [] as $q) {
+            if (is_array($q)) {
+                $sidecar = self::ptrOptStr($q, 'commitment_sidecar');
+                $signedQuotes[] = new SignedQuoteEntry(
+                    quoteHash: self::ptrStr($q, 'quote_hash'),
+                    quote: self::ptrStr($q, 'quote'),
+                    commitmentSidecar: $sidecar === '' ? null : $sidecar,
+                );
+            }
+        }
+        return new PointerPrepareResult(
+            uploadId: self::ptrStr($json, 'upload_id'),
+            op: self::ptrStr($json, 'op'),
+            address: self::ptrStr($json, 'address'),
+            stateId: self::ptrStr($json, 'state_id'),
+            counter: self::ptrCounter($json, 'counter'),
+            paymentType: self::ptrStr($json, 'payment_type'),
+            payments: $payments,
+            totalAmount: self::ptrStr($json, 'total_amount'),
+            paymentVaultAddress: self::ptrStr($json, 'payment_vault_address'),
+            paymentTokenAddress: self::ptrStr($json, 'payment_token_address'),
+            rpcUrl: self::ptrStr($json, 'rpc_url'),
+            signedQuotes: $signedQuotes,
+        );
+    }
+
+    /** @param array<mixed>|null $json */
+    private static function parsePointerFinalize(?array $json): PointerFinalizeResult
+    {
+        $json ??= [];
+        $finality = $json['finality'] ?? null;
+        return new PointerFinalizeResult(
+            address: self::ptrStr($json, 'address'),
+            stateId: self::ptrStr($json, 'state_id'),
+            counter: self::ptrCounter($json, 'counter'),
+            finality: is_array($finality) ? self::parsePointerFinality($finality) : null,
         );
     }
 }

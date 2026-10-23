@@ -417,7 +417,249 @@ module Antd
       parse_finalize_response(j)
     end
 
+    # --- Pointers ---
+    #
+    # Owner-signed, paid, mutable references (antd 0.16.0 or
+    # later). The daemon signs with owner keys it loaded at
+    # startup (+antd --pointer-keys <file-or-dir>+), so a write names the
+    # pointer by its address (+owner+); +pointer_keys+ lists the pointers it
+    # can write.
+    #
+    # Every write pays, about the price of one chunk, and every attempt pays
+    # again. This client never retries a request, and callers must not retry
+    # +pointer_create+, +pointer_update+, +pointer_transfer+ or
+    # +pointer_finalize+ automatically (the one exception: a finalize that
+    # raised +CloseGroupShortfallError+ with +retryable+). Reads are free to
+    # retry.
+    #
+    # Addresses are 64 hex characters. The daemon accepts a 0x prefix but
+    # always returns bare hex, so normalise before comparing.
+
+    # The addresses of the pointers this daemon holds owner keys for. Only
+    # these can be written.
+    # @return [Array<String>]
+    def pointer_keys
+      j = do_json(:get, "/v1/pointers/keys")
+      (j["keys"] || []).map { |k| k["address"] || "" }
+    end
+
+    # Create the pointer at +owner+, pointing at +target+, paid by the daemon
+    # wallet. Pays; do not retry automatically.
+    # @param owner [String] address of the pointer to write
+    # @param target [String] address to point at
+    # @param kind [String, nil] +PointerKind::CHUNK+ (the daemon's default when
+    #   nil) or +PointerKind::POINTER+
+    # @return [PointerWriteResult]
+    # @raise [AlreadyExistsError] before paying, if the pointer exists
+    # @raise [BadRequestError] if the daemon holds no key for +owner+
+    def pointer_create(owner, target, kind: nil)
+      pointer_write("/v1/pointers", owner, target, kind)
+    end
+
+    # Point the pointer at +owner+ at +target+, paid by the daemon wallet,
+    # creating it if it does not exist. Pays; do not retry automatically.
+    # @param owner [String]
+    # @param target [String]
+    # @param kind [String, nil] see +pointer_create+
+    # @return [PointerWriteResult]
+    # @raise [PointerFinalError] if the pointer was handed over or frozen
+    #   (usually before paying; see +PointerFinalError+)
+    # @raise [ConflictError] if a prepared write to it awaits payment (refused
+    #   before paying), or the update lost to a newer state while in flight
+    #   (possibly after paying); read the pointer before writing again
+    def pointer_update(owner, target, kind: nil)
+      pointer_write("/v1/pointers/update", owner, target, kind)
+    end
+
+    # Hand the pointer at +owner+ over to the pointer at +recipient+, for
+    # good, paid by the daemon wallet. Readers of +owner+'s address are
+    # redirected to the recipient's pointer, which only its owner can move.
+    # Irreversible once stored. Pays; do not retry automatically.
+    #
+    # Refused before paying if +recipient+ does not exist or leads back
+    # (+BadRequestError+), and usually if the pointer is already final
+    # (+PointerFinalError+). A +CloseGroupShortfallError+ means too few of the
+    # close group answered or stored it. That can happen before paying (the
+    # transfer checks every peer first) or after, so check the pointer with
+    # +pointer_finality+ before paying again.
+    #
+    # @param owner [String]
+    # @param recipient [String] address of the recipient's pointer
+    # @return [PointerTransferResult]
+    def pointer_transfer(owner, recipient)
+      j = do_json(:post, "/v1/pointers/transfer", { owner: owner, recipient: recipient })
+      PointerTransferResult.new(
+        address: j["address"] || "",
+        state_id: j["state_id"] || "",
+        finality: j["finality"].is_a?(Hash) ? parse_pointer_finality(j["finality"]) : nil,
+        finality_error: presence(j["finality_error"])
+      )
+    end
+
+    # Read the pointer at +address+.
+    # @param address [String]
+    # @return [PointerRecord]
+    # @raise [NotFoundError] if no pointer exists there
+    def pointer_get(address)
+      j = do_json(:get, "/v1/pointers/#{address}")
+      PointerRecord.new(
+        address: j["address"] || "",
+        owner: j["owner"] || "",
+        counter: Antd.parse_pointer_counter("counter", j["counter"]),
+        kind: j["kind"] || "",
+        kind_tag: (j["kind_tag"] || 0).to_i,
+        target: j["target"] || "",
+        state_id: j["state_id"] || "",
+        is_final: j["is_final"] == true,
+        transferred_to: presence(j["transferred_to"])
+      )
+    end
+
+    # Follow a chain of pointers from +address+ to the target at its end.
+    # @param address [String]
+    # @return [PointerTarget]
+    # @raise [NotFoundError] if a pointer on the chain does not exist
+    def pointer_resolve(address)
+      j = do_json(:get, "/v1/pointers/#{address}/resolve")
+      PointerTarget.new(kind: j["kind"] || "", kind_tag: (j["kind_tag"] || 0).to_i, target: j["target"] || "")
+    end
+
+    # Ask the whole close group where the pointer at +address+ stands. Check
+    # it before relying on a transfer: only +PointerFinality#final?+ means the
+    # transfer is beyond dispute.
+    # @param address [String]
+    # @return [PointerFinality]
+    def pointer_finality(address)
+      parse_pointer_finality(do_json(:get, "/v1/pointers/#{address}/finality"))
+    end
+
+    # Follow the transfers from +address+ to the pointer whose owner now
+    # decides what it resolves to.
+    # @param address [String]
+    # @return [PointerController]
+    def pointer_controller(address)
+      j = do_json(:get, "/v1/pointers/#{address}/controller")
+      PointerController.new(
+        pointer: j["pointer"] || "",
+        transfers: (j["transfers"] || []).grep(String),
+        frozen: j["frozen"] == true
+      )
+    end
+
+    # External signer: sign a pointer write with the daemon's loaded owner key
+    # and quote it, without paying. The external signer pays +payments+ with
+    # +payForQuotes()+ and then calls +pointer_finalize+. The daemon needs no
+    # wallet. While the prepared write awaits payment (up to an hour), other
+    # writes to the same pointer raise +ConflictError+.
+    #
+    # @param owner [String] address of the pointer to write
+    # @param op [String] +PointerOp::CREATE+, +UPDATE+ or +TRANSFER+
+    # @param target [String, nil] create / update: the address to point at
+    # @param kind [String, nil] create / update: see +pointer_create+
+    # @param recipient [String, nil] transfer: the recipient's pointer
+    # @param include_signed_quotes [Boolean] also return each quote in full
+    #   signed form (+PointerPrepareResult#signed_quotes+)
+    # @return [PointerPrepareResult]
+    def pointer_prepare(owner, op, target: nil, kind: nil, recipient: nil, include_signed_quotes: false)
+      body = { owner: owner, op: op }
+      body[:target] = target unless target.nil?
+      body[:kind] = kind unless kind.nil?
+      body[:recipient] = recipient unless recipient.nil?
+      body[:include_signed_quotes] = true if include_signed_quotes
+      j = do_json(:post, "/v1/pointers/prepare", body)
+      PointerPrepareResult.new(
+        upload_id: j["upload_id"] || "",
+        op: j["op"] || "",
+        address: j["address"] || "",
+        state_id: j["state_id"] || "",
+        counter: Antd.parse_pointer_counter("counter", j["counter"]),
+        payment_type: j["payment_type"] || "",
+        payments: (j["payments"] || []).map do |p|
+          PaymentInfo.new(quote_hash: p["quote_hash"], rewards_address: p["rewards_address"], amount: p["amount"])
+        end,
+        total_amount: j["total_amount"] || "",
+        payment_vault_address: j["payment_vault_address"] || "",
+        payment_token_address: j["payment_token_address"] || "",
+        rpc_url: j["rpc_url"] || "",
+        signed_quotes: (j["signed_quotes"] || []).map do |q|
+          SignedQuoteEntry.new(
+            quote_hash: q["quote_hash"] || "",
+            quote: q["quote"] || "",
+            commitment_sidecar: presence(q["commitment_sidecar"])
+          )
+        end
+      )
+    end
+
+    # External signer: store a prepared pointer write once it is paid.
+    #
+    # A write that falls short after payment raises +CloseGroupShortfallError+
+    # with +retryable+ set: the daemon kept the paid state, so call this again
+    # with the same +upload_id+ (+tx_hashes+ is then ignored) to store it
+    # against the same payment. Bound that loop; the session expires with the
+    # daemon's one-hour pending TTL. Any other failure ends the session.
+    #
+    # @param upload_id [String] from +pointer_prepare+
+    # @param tx_hashes [Hash<String, String>] each +quote_hash+ from
+    #   +payments+ to the +payForQuotes()+ transaction hash
+    # @return [PointerFinalizeResult]
+    def pointer_finalize(upload_id, tx_hashes)
+      j = do_json(:post, "/v1/pointers/finalize", { upload_id: upload_id, tx_hashes: tx_hashes })
+      PointerFinalizeResult.new(
+        address: j["address"] || "",
+        state_id: j["state_id"] || "",
+        counter: Antd.parse_pointer_counter("counter", j["counter"]),
+        finality: j["finality"].is_a?(Hash) ? parse_pointer_finality(j["finality"]) : nil
+      )
+    end
+
     private
+
+    # POST a pointer create / update. +kind+ is omitted when nil, so the
+    # daemon applies its default (chunk).
+    def pointer_write(path, owner, target, kind)
+      body = { owner: owner, target: target }
+      body[:kind] = kind unless kind.nil?
+      j = do_json(:post, path, body)
+      PointerWriteResult.new(
+        address: j["address"] || "",
+        state_id: j["state_id"] || "",
+        counter: Antd.parse_pointer_counter("counter", j["counter"])
+      )
+    end
+
+    # Parse a pointer finality JSON object. The daemon sends +null+ for every
+    # unset optional (+counter+, +state+, +majority+, +transferred_to+); each
+    # reads as nil.
+    def parse_pointer_finality(j)
+      PointerFinality.new(
+        address: j["address"] || "",
+        group: (j["group"] || 0).to_i,
+        answered: (j["answered"] || 0).to_i,
+        status: j["status"] || "",
+        counter: j["counter"].nil? ? nil : Antd.parse_pointer_counter("finality counter", j["counter"]),
+        state: j["state"].is_a?(Hash) ? parse_pointer_final_state(j["state"]) : nil,
+        states: (j["states"] || []).grep(Hash).map { |s| parse_pointer_final_state(s) },
+        majority: j["majority"].is_a?(Hash) ? parse_pointer_final_state(j["majority"]) : nil,
+        transferred_to: presence(j["transferred_to"])
+      )
+    end
+
+    def parse_pointer_final_state(j)
+      PointerFinalState.new(
+        state_id: j["state_id"] || "",
+        kind: j["kind"] || "",
+        kind_tag: (j["kind_tag"] || 0).to_i,
+        target: j["target"] || "",
+        holders: (j["holders"] || 0).to_i,
+        transferred_to: presence(j["transferred_to"])
+      )
+    end
+
+    # A wire string, or nil when absent, +null+ or empty.
+    def presence(value)
+      value.is_a?(String) && !value.empty? ? value : nil
+    end
 
     # Parse a /v1/upload/finalize JSON response into a FinalizeUploadResult.
     #

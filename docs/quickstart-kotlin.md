@@ -94,11 +94,11 @@ val est = client.dataCost(payload)
 ```kotlin
 // Store (encrypted)
 val secret = "secret message".toByteArray()
-val result = client.dataPutPrivate(secret)
-val dataMap = result.address  // Keep this secret!
+val result = client.dataPut(secret)
+val dataMap = result.dataMap  // Keep this secret!
 
 // Retrieve (decrypt)
-val decrypted = client.dataGetPrivate(dataMap)
+val decrypted = client.dataGet(dataMap)
 println(String(decrypted))
 ```
 
@@ -106,15 +106,41 @@ println(String(decrypted))
 
 ```kotlin
 // Upload a file
-val result = client.fileUploadPublic("/path/to/file.txt")
+val result = client.filePutPublic("/path/to/file.txt")
 
 // Download a file
-client.fileDownloadPublic(result.address, "/path/to/output.txt")
+client.fileGetPublic(result.address, "/path/to/output.txt")
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 val est = client.fileCost("/path/to/file.txt")
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs antd 0.16.0 or later (the first release with pointers). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```kotlin
+val owner = client.pointerKeys().first()              // a pointer antd can write
+
+val v1 = client.dataPutPublic("version 1".toByteArray()).address
+val v2 = client.dataPutPublic("version 2".toByteArray()).address
+
+client.pointerCreate(owner, v1)                       // pays; counter 0
+client.pointerUpdate(owner, v2)                       // pays again; counter 1
+val target = client.pointerResolve(owner).target      // == v2 (free)
+
+val finality = client.pointerFinality(owner)          // free
+println(finality.status.wire)                         // "open"
+```
+
+Counters are `ULong`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set, on both clients.
+
+Runnable example: `antd-kotlin/examples/src/main/kotlin/com/autonomi/examples/Example08Pointers.kt`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-kotlin
+ANTD_POINTER_OWNER=<address> ./gradlew :examples:run --args="8"
+```
 
 ## Error Handling
 
@@ -146,6 +172,36 @@ Exception hierarchy:
 | `TooLargeException` | 413 | Payload too large |
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
+
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs antd 0.16.0 or later. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```kotlin
+val one = client.dataPutPublic("first note".toByteArray()).address   // pays
+val two = client.dataPutPublic("second note".toByteArray()).address  // pays
+
+val built = client.buildManifest(                                     // free
+    listOf(
+        ManifestEntryInput(address = one, path = "notes/one.txt"),
+        ManifestEntryInput(address = two, path = "notes/two.txt"),
+    ),
+    BuildManifestOptions(name = "example"),
+)
+println(built.link)                                // null when over 1,500 bytes: share built.manifest (ByteArray) instead
+
+val decoded = client.decodeManifestLink(built.link!!, resolve = true)   // free
+decoded.entries.forEach { println("${it.effectiveName}: ${it.exactSize} bytes") }
+```
+
+`decodeManifest(bytes, resolve = false)` takes raw `.ant` bytes. Use `dataMap =` instead of `address =` for an embedded entry; `BuildManifestOptions` has `embedRoots` (default `true`). Sizes are `ULong?`.
+
+Runnable example: `antd-kotlin/examples/src/main/kotlin/com/autonomi/examples/Example09Manifests.kt`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-kotlin
+ANTD_BASE_URL=http://localhost:8082 ./gradlew :examples:run --args="9"
+```
 
 ## Examples
 

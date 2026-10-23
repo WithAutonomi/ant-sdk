@@ -43,7 +43,11 @@ pub enum AntdError {
     /// The pointer is at its final state, transferred or frozen: nothing can
     /// update it or hand it over again (HTTP 409 with
     /// `code: "POINTER_FINAL"`; gRPC `FAILED_PRECONDITION` with
-    /// `x-antd-error-code: POINTER_FINAL`). Refused before anything is paid.
+    /// `x-antd-error-code: POINTER_FINAL`). Usually refused before anything
+    /// is paid: the daemon reads the pointer first. A write that was already
+    /// paid for when the network refused it (the pointer became final while
+    /// the write was in flight) keeps that payment, so read the pointer before
+    /// paying again.
     #[error("antd error 409 (pointer final): {0}")]
     PointerFinal(String),
 
@@ -56,9 +60,13 @@ pub enum AntdError {
 
     /// The request conflicts with the resource's current state (HTTP 409 with
     /// `code: "CONFLICT"`; gRPC `ABORTED` with `x-antd-error-code: CONFLICT`).
-    /// For pointers: a write while a prepared write to the same pointer
-    /// awaits payment (finalize it, or wait for it to expire), or an update
-    /// that lost to a newer state while it was in flight.
+    /// For pointers, two cases share this code, and it does not say which one
+    /// happened or whether anything was paid: a write while a prepared write
+    /// to the same pointer awaits payment is refused before paying (finalize
+    /// the prepared write, or wait for it to expire); an update that lost to a
+    /// newer state while it was in flight may already have been paid for.
+    /// Read the pointer again and check what was paid before submitting
+    /// another paid write.
     #[error("antd error 409 (conflict): {0}")]
     Conflict(String),
 
@@ -197,6 +205,9 @@ impl From<tonic::Status> for AntdError {
             return e;
         }
         match status.code() {
+            // INVALID_ARGUMENT is the REST 400, on every call. Reached only
+            // when no `x-antd-error-code` tag took the status above.
+            tonic::Code::InvalidArgument => AntdError::BadRequest(status.message().to_string()),
             // PARTIAL_UPLOAD: some chunks stored, some still unstored after
             // retries. The daemon opens every such message with the fixed
             // `Partial upload:` prefix, so gate on it: any other ABORTED keeps
@@ -232,7 +243,7 @@ impl From<tonic::Status> for AntdError {
     }
 }
 
-/// Metadata key the daemon (with the pointer API, after 0.15.0) sets on statuses whose gRPC code
+/// Metadata key the daemon (0.16.0 or later) sets on statuses whose gRPC code
 /// is shared with older errors, carrying the REST `code` string.
 const ANTD_ERROR_CODE_METADATA: &str = "x-antd-error-code";
 

@@ -192,12 +192,12 @@ print(f"Estimate: {est.file_size} bytes in {est.chunk_count} chunks, "
       f"{est.cost} atto, gas {est.estimated_gas_cost_wei} wei, mode {est.payment_mode}")
 
 # Upload
-result = client.file_upload_public(src)
+result = client.file_put_public(src)
 print(f"File uploaded to: {result.address}")
 
 # Download to a different location
 dest = src + ".downloaded"
-client.file_download_public(result.address, dest)
+client.file_get_public(result.address, dest)
 
 with open(dest) as f:
     print(f"Downloaded content: {f.read()}")
@@ -222,11 +222,11 @@ try
     var est = await client.FileCostAsync(srcPath);
     Console.WriteLine($"Estimate: {est.FileSize} bytes in {est.ChunkCount} chunks, {est.Cost} atto, gas {est.EstimatedGasCostWei} wei, mode {est.PaymentMode}");
 
-    var result = await client.FileUploadPublicAsync(srcPath);
+    var result = await client.FilePutPublicAsync(srcPath);
     Console.WriteLine($"Uploaded to: {result.Address}");
 
     var destPath = srcPath + ".downloaded";
-    await client.FileDownloadPublicAsync(result.Address, destPath);
+    await client.FileGetPublicAsync(result.Address, destPath);
 
     var content = await File.ReadAllTextAsync(destPath);
     Console.WriteLine($"Downloaded: {content}");
@@ -251,11 +251,11 @@ try {
     val est = client.fileCost(srcFile.absolutePath)
     println("Estimate: ${est.fileSize} bytes in ${est.chunkCount} chunks, ${est.cost} atto, gas ${est.estimatedGasCostWei} wei, mode ${est.paymentMode}")
 
-    val result = client.fileUploadPublic(srcFile.absolutePath)
+    val result = client.filePutPublic(srcFile.absolutePath)
     println("Uploaded to: ${result.address}")
 
     val destPath = srcFile.absolutePath + ".downloaded"
-    client.fileDownloadPublic(result.address, destPath)
+    client.fileGetPublic(result.address, destPath)
 
     val content = java.io.File(destPath).readText()
     println("Downloaded: $content")
@@ -282,11 +282,11 @@ do {
     let est = try await client.fileCost(path: srcPath)
     print("Estimate: \(est.fileSize) bytes in \(est.chunkCount) chunks, \(est.cost) atto, gas \(est.estimatedGasCostWei) wei, mode \(est.paymentMode)")
 
-    let result = try await client.fileUploadPublic(path: srcPath)
+    let result = try await client.filePutPublic(path: srcPath)
     print("Uploaded to: \(result.address)")
 
     let destPath = srcPath + ".downloaded"
-    try await client.fileDownloadPublic(address: result.address, destPath: destPath)
+    try await client.fileGetPublic(address: result.address, destPath: destPath)
 
     let content = try String(contentsOfFile: destPath, encoding: .utf8)
     print("Downloaded: \(content)")
@@ -311,12 +311,12 @@ client = AntdClient()
 secret_message = b"This is encrypted on the network"
 
 # Store privately
-result = client.data_put_private(secret_message)
-data_map = result.address  # This is the decryption key — keep it secret!
+result = client.data_put(secret_message)
+data_map = result.data_map  # This is the decryption key — keep it secret!
 print(f"Data map: {data_map[:40]}...")
 
 # Retrieve and decrypt
-decrypted = client.data_get_private(data_map)
+decrypted = client.data_get(data_map)
 print(f"Decrypted: {decrypted.decode()}")
 
 assert decrypted == secret_message
@@ -332,11 +332,11 @@ using var client = AntdClient.CreateRest();
 
 var secret = Encoding.UTF8.GetBytes("This is encrypted on the network");
 
-var result = await client.DataPutPrivateAsync(secret);
-var dataMap = result.Address;
+var result = await client.DataPutAsync(secret);
+var dataMap = result.DataMap;
 Console.WriteLine($"Data map: {dataMap[..40]}...");
 
-var decrypted = await client.DataGetPrivateAsync(dataMap);
+var decrypted = await client.DataGetAsync(dataMap);
 Console.WriteLine($"Decrypted: {Encoding.UTF8.GetString(decrypted)}");
 ```
 
@@ -347,11 +347,11 @@ val client = AntdClient.createRest()
 
 val secretMessage = "This is encrypted on the network".toByteArray()
 
-val result = client.dataPutPrivate(secretMessage)
-val dataMap = result.address
+val result = client.dataPut(secretMessage)
+val dataMap = result.dataMap
 println("Data map: ${dataMap.take(40)}...")
 
-val decrypted = client.dataGetPrivate(dataMap)
+val decrypted = client.dataGet(dataMap)
 println("Decrypted: ${String(decrypted)}")
 
 check(decrypted.contentEquals(secretMessage))
@@ -364,11 +364,11 @@ let client = try AntdClient.createRest()
 
 let secretMessage = "This is encrypted on the network".data(using: .utf8)!
 
-let result = try await client.dataPutPrivate(secretMessage)
-let dataMap = result.address
+let result = try await client.dataPut(secretMessage)
+let dataMap = result.dataMap
 print("Data map: \(String(dataMap.prefix(40)))...")
 
-let decrypted = try await client.dataGetPrivate(dataMap: dataMap)
+let decrypted = try await client.dataGet(dataMap: dataMap)
 print("Decrypted: \(String(data: decrypted, encoding: .utf8)!)")
 
 assert(decrypted == secretMessage)

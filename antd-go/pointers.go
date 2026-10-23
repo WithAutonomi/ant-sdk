@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-// Pointers (antd >= 0.16.0): owner-signed, paid, mutable references. A
+// Pointers (antd 0.16.0 or later): owner-signed, paid, mutable references. A
 // pointer's address is derived from its owner's key and never changes; what
 // it points at can be updated by the owner, and the owner can hand it over to
 // another pointer for good (PointerTransfer).
@@ -46,8 +46,11 @@ func (c *Client) PointerCreate(ctx context.Context, owner, target string, kind P
 
 // PointerUpdate points the pointer at owner at target, paid by the daemon
 // wallet, creating it if it does not exist. kind defaults to
-// PointerTargetChunk when empty. Returns a PointerFinalError, before paying,
-// if the pointer has been handed over or frozen.
+// PointerTargetChunk when empty. Returns a PointerFinalError if the pointer
+// has been handed over or frozen (usually before paying; see
+// PointerFinalError), and a ConflictError if a prepared write to it awaits
+// payment (refused before paying) or the update lost to a newer state while
+// in flight (possibly after paying). Read the pointer before writing again.
 func (c *Client) PointerUpdate(ctx context.Context, owner, target string, kind PointerTargetKind) (*PointerWrite, error) {
 	return c.pointerWrite(ctx, "/v1/pointers/update", owner, target, kind)
 }
@@ -69,9 +72,12 @@ func (c *Client) pointerWrite(ctx context.Context, path, owner, target string, k
 // redirected to the recipient's pointer, which only its owner can move.
 // Irreversible once stored.
 //
-// Refused before paying if the pointer is already final (PointerFinalError),
-// if recipient does not exist or leads back (BadRequestError), or if not every
-// peer of the close group answered (CloseGroupShortfallError; retry later).
+// Refused before paying if recipient does not exist or leads back
+// (BadRequestError), and usually if the pointer is already final
+// (PointerFinalError). A CloseGroupShortfallError means too few of the close
+// group answered or stored it. That can happen before paying (the transfer
+// checks every peer first) or after, so check the pointer with
+// PointerFinality before paying again.
 func (c *Client) PointerTransfer(ctx context.Context, owner, recipient string) (*PointerTransferResult, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/pointers/transfer", map[string]any{
 		"owner":     owner,

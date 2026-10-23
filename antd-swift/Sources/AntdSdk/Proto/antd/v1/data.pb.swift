@@ -20,12 +20,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-public struct Antd_V1_GetPublicDataRequest: Sendable {
+public nonisolated struct Antd_V1_GetPublicDataRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -38,7 +38,7 @@ public struct Antd_V1_GetPublicDataRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_GetPublicDataResponse: Sendable {
+public nonisolated struct Antd_V1_GetPublicDataResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -50,7 +50,7 @@ public struct Antd_V1_GetPublicDataResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PutPublicDataRequest: Sendable {
+public nonisolated struct Antd_V1_PutPublicDataRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -67,7 +67,7 @@ public struct Antd_V1_PutPublicDataRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PutPublicDataResponse: Sendable {
+public nonisolated struct Antd_V1_PutPublicDataResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -101,7 +101,7 @@ public struct Antd_V1_PutPublicDataResponse: Sendable {
   fileprivate var _cost: Antd_V1_Cost? = nil
 }
 
-public struct Antd_V1_StreamPublicDataRequest: Sendable {
+public nonisolated struct Antd_V1_StreamPublicDataRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -154,7 +154,7 @@ public struct Antd_V1_StreamPublicDataRequest: Sendable {
 /// `data` keeps wire tag 1, so a frame carrying data is byte-identical to the
 /// pre-oneof `DataChunk { bytes data = 1 }` — only opt-in progress consumers
 /// ever observe `progress` frames (see StreamDataRequest.include_progress).
-public struct Antd_V1_DataChunk: Sendable {
+public nonisolated struct Antd_V1_DataChunk: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -179,7 +179,7 @@ public struct Antd_V1_DataChunk: Sendable {
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Kind: Equatable, Sendable {
+  public nonisolated enum OneOf_Kind: Equatable, Sendable {
     case data(Data)
     case progress(Antd_V1_DownloadProgress)
 
@@ -194,7 +194,7 @@ public struct Antd_V1_DataChunk: Sendable {
 /// the x-content-length header / Content-Length is the byte *denominator*, but
 /// decrypted-byte delivery lands in lumps, so chunk-fetch counts are what
 /// actually advance smoothly during a download.
-public struct Antd_V1_DownloadProgress: Sendable {
+public nonisolated struct Antd_V1_DownloadProgress: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -215,7 +215,7 @@ public struct Antd_V1_DownloadProgress: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_GetDataRequest: Sendable {
+public nonisolated struct Antd_V1_GetDataRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -228,7 +228,7 @@ public struct Antd_V1_GetDataRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_StreamDataRequest: Sendable {
+public nonisolated struct Antd_V1_StreamDataRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -266,7 +266,7 @@ public struct Antd_V1_StreamDataRequest: Sendable {
   fileprivate var _length: UInt64? = nil
 }
 
-public struct Antd_V1_GetDataResponse: Sendable {
+public nonisolated struct Antd_V1_GetDataResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -278,7 +278,7 @@ public struct Antd_V1_GetDataResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PutDataRequest: Sendable {
+public nonisolated struct Antd_V1_PutDataRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -295,7 +295,7 @@ public struct Antd_V1_PutDataRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PutDataResponse: Sendable {
+public nonisolated struct Antd_V1_PutDataResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -329,7 +329,7 @@ public struct Antd_V1_PutDataResponse: Sendable {
   fileprivate var _cost: Antd_V1_Cost? = nil
 }
 
-public struct Antd_V1_DataCostRequest: Sendable {
+public nonisolated struct Antd_V1_DataCostRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -347,9 +347,9 @@ public struct Antd_V1_DataCostRequest: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "antd.v1"
+fileprivate nonisolated let _protobuf_package = "antd.v1"
 
-extension Antd_V1_GetPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetPublicDataRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
 
@@ -379,7 +379,7 @@ extension Antd_V1_GetPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Antd_V1_GetPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetPublicDataResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0")
 
@@ -409,7 +409,7 @@ extension Antd_V1_GetPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Antd_V1_PutPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PutPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutPublicDataRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{3}payment_mode\0")
 
@@ -444,7 +444,7 @@ extension Antd_V1_PutPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutPublicDataResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{1}address\0\u{3}chunks_stored\0\u{3}payment_mode_used\0\u{1}sha256\0")
 
@@ -498,7 +498,7 @@ extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Antd_V1_StreamPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_StreamPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StreamPublicDataRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}include_progress\0\u{1}offset\0\u{1}length\0")
 
@@ -547,7 +547,7 @@ extension Antd_V1_StreamPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
-extension Antd_V1_DataChunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_DataChunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DataChunk"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{1}progress\0")
 
@@ -609,7 +609,7 @@ extension Antd_V1_DataChunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 }
 
-extension Antd_V1_DownloadProgress: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_DownloadProgress: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DownloadProgress"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}phase\0\u{1}fetched\0\u{1}total\0")
 
@@ -649,7 +649,7 @@ extension Antd_V1_DownloadProgress: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
-extension Antd_V1_GetDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetDataRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0")
 
@@ -679,7 +679,7 @@ extension Antd_V1_GetDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Antd_V1_StreamDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_StreamDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StreamDataRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0\u{3}include_progress\0\u{1}offset\0\u{1}length\0")
 
@@ -728,7 +728,7 @@ extension Antd_V1_StreamDataRequest: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Antd_V1_GetDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetDataResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0")
 
@@ -758,7 +758,7 @@ extension Antd_V1_GetDataResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Antd_V1_PutDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PutDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutDataRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{3}payment_mode\0")
 
@@ -793,7 +793,7 @@ extension Antd_V1_PutDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutDataResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{3}data_map\0\u{3}chunks_stored\0\u{3}payment_mode_used\0\u{1}sha256\0")
 
@@ -847,7 +847,7 @@ extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Antd_V1_DataCostRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_DataCostRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DataCostRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{3}payment_mode\0")
 

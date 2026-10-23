@@ -16,7 +16,7 @@ import 'dart:core' as $core;
 import 'package:grpc/service_api.dart' as $grpc;
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'upload.pb.dart' as $6;
+import 'upload.pb.dart' as $8;
 
 export 'upload.pb.dart';
 
@@ -44,25 +44,25 @@ class UploadServiceClient extends $grpc.Client {
     '',
   ];
 
-  static final _$prepareFileUpload = $grpc.ClientMethod<$6.PrepareFileUploadRequest, $6.PrepareUploadResponse>(
+  static final _$prepareFileUpload = $grpc.ClientMethod<$8.PrepareFileUploadRequest, $8.PrepareUploadResponse>(
       '/antd.v1.UploadService/PrepareFileUpload',
-      ($6.PrepareFileUploadRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PrepareUploadResponse.fromBuffer(value));
-  static final _$prepareDataUpload = $grpc.ClientMethod<$6.PrepareDataUploadRequest, $6.PrepareUploadResponse>(
+      ($8.PrepareFileUploadRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $8.PrepareUploadResponse.fromBuffer(value));
+  static final _$prepareDataUpload = $grpc.ClientMethod<$8.PrepareDataUploadRequest, $8.PrepareUploadResponse>(
       '/antd.v1.UploadService/PrepareDataUpload',
-      ($6.PrepareDataUploadRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PrepareUploadResponse.fromBuffer(value));
-  static final _$finalizeUpload = $grpc.ClientMethod<$6.FinalizeUploadRequest, $6.FinalizeUploadResponse>(
+      ($8.PrepareDataUploadRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $8.PrepareUploadResponse.fromBuffer(value));
+  static final _$finalizeUpload = $grpc.ClientMethod<$8.FinalizeUploadRequest, $8.FinalizeUploadResponse>(
       '/antd.v1.UploadService/FinalizeUpload',
-      ($6.FinalizeUploadRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.FinalizeUploadResponse.fromBuffer(value));
+      ($8.FinalizeUploadRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $8.FinalizeUploadResponse.fromBuffer(value));
 
   UploadServiceClient(super.channel, {super.options, super.interceptors});
 
   /// Phase 1: prepare a file upload for external signing. Returns payment
   /// details + an upload_id. For files with < 64 chunks returns
   /// `payment_type = "wave_batch"`; otherwise `payment_type = "merkle"`.
-  $grpc.ResponseFuture<$6.PrepareUploadResponse> prepareFileUpload($6.PrepareFileUploadRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$8.PrepareUploadResponse> prepareFileUpload($8.PrepareFileUploadRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$prepareFileUpload, request, options: options);
   }
 
@@ -70,7 +70,7 @@ class UploadServiceClient extends $grpc.Client {
   /// Same as PrepareFileUpload but takes raw bytes instead of a filesystem
   /// path. Honours visibility = "public" (requires ant-client #73, already
   /// merged on main since 2026-05-05).
-  $grpc.ResponseFuture<$6.PrepareUploadResponse> prepareDataUpload($6.PrepareDataUploadRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$8.PrepareUploadResponse> prepareDataUpload($8.PrepareDataUploadRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$prepareDataUpload, request, options: options);
   }
 
@@ -80,7 +80,7 @@ class UploadServiceClient extends $grpc.Client {
   /// the prepare response's `merkle_batches` (`winner_pool_hash` remains
   /// accepted when there is exactly one batch). The server-side stored upload
   /// state is consumed (one-shot) once inputs validate.
-  $grpc.ResponseFuture<$6.FinalizeUploadResponse> finalizeUpload($6.FinalizeUploadRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$8.FinalizeUploadResponse> finalizeUpload($8.FinalizeUploadRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$finalizeUpload, request, options: options);
   }
 }
@@ -90,42 +90,42 @@ abstract class UploadServiceBase extends $grpc.Service {
   $core.String get $name => 'antd.v1.UploadService';
 
   UploadServiceBase() {
-    $addMethod($grpc.ServiceMethod<$6.PrepareFileUploadRequest, $6.PrepareUploadResponse>(
+    $addMethod($grpc.ServiceMethod<$8.PrepareFileUploadRequest, $8.PrepareUploadResponse>(
         'PrepareFileUpload',
         prepareFileUpload_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.PrepareFileUploadRequest.fromBuffer(value),
-        ($6.PrepareUploadResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.PrepareDataUploadRequest, $6.PrepareUploadResponse>(
+        ($core.List<$core.int> value) => $8.PrepareFileUploadRequest.fromBuffer(value),
+        ($8.PrepareUploadResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$8.PrepareDataUploadRequest, $8.PrepareUploadResponse>(
         'PrepareDataUpload',
         prepareDataUpload_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.PrepareDataUploadRequest.fromBuffer(value),
-        ($6.PrepareUploadResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.FinalizeUploadRequest, $6.FinalizeUploadResponse>(
+        ($core.List<$core.int> value) => $8.PrepareDataUploadRequest.fromBuffer(value),
+        ($8.PrepareUploadResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$8.FinalizeUploadRequest, $8.FinalizeUploadResponse>(
         'FinalizeUpload',
         finalizeUpload_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.FinalizeUploadRequest.fromBuffer(value),
-        ($6.FinalizeUploadResponse value) => value.writeToBuffer()));
+        ($core.List<$core.int> value) => $8.FinalizeUploadRequest.fromBuffer(value),
+        ($8.FinalizeUploadResponse value) => value.writeToBuffer()));
   }
 
-  $async.Future<$6.PrepareUploadResponse> prepareFileUpload_Pre($grpc.ServiceCall $call, $async.Future<$6.PrepareFileUploadRequest> $request) async {
+  $async.Future<$8.PrepareUploadResponse> prepareFileUpload_Pre($grpc.ServiceCall $call, $async.Future<$8.PrepareFileUploadRequest> $request) async {
     return prepareFileUpload($call, await $request);
   }
 
-  $async.Future<$6.PrepareUploadResponse> prepareDataUpload_Pre($grpc.ServiceCall $call, $async.Future<$6.PrepareDataUploadRequest> $request) async {
+  $async.Future<$8.PrepareUploadResponse> prepareDataUpload_Pre($grpc.ServiceCall $call, $async.Future<$8.PrepareDataUploadRequest> $request) async {
     return prepareDataUpload($call, await $request);
   }
 
-  $async.Future<$6.FinalizeUploadResponse> finalizeUpload_Pre($grpc.ServiceCall $call, $async.Future<$6.FinalizeUploadRequest> $request) async {
+  $async.Future<$8.FinalizeUploadResponse> finalizeUpload_Pre($grpc.ServiceCall $call, $async.Future<$8.FinalizeUploadRequest> $request) async {
     return finalizeUpload($call, await $request);
   }
 
-  $async.Future<$6.PrepareUploadResponse> prepareFileUpload($grpc.ServiceCall call, $6.PrepareFileUploadRequest request);
-  $async.Future<$6.PrepareUploadResponse> prepareDataUpload($grpc.ServiceCall call, $6.PrepareDataUploadRequest request);
-  $async.Future<$6.FinalizeUploadResponse> finalizeUpload($grpc.ServiceCall call, $6.FinalizeUploadRequest request);
+  $async.Future<$8.PrepareUploadResponse> prepareFileUpload($grpc.ServiceCall call, $8.PrepareFileUploadRequest request);
+  $async.Future<$8.PrepareUploadResponse> prepareDataUpload($grpc.ServiceCall call, $8.PrepareDataUploadRequest request);
+  $async.Future<$8.FinalizeUploadResponse> finalizeUpload($grpc.ServiceCall call, $8.FinalizeUploadRequest request);
 }

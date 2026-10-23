@@ -593,6 +593,90 @@ public class AntdClient implements AutoCloseable {
         return fileCost(path, isPublic, PaymentMode.AUTO);
     }
 
+    // Manifests
+    //
+    // ADR-0006 `.ant` files and `ant://` links: a set of files, each with an
+    // optional path and size and either an embedded DataMap or a public
+    // DataMap address. The daemon builds and decodes them, so callers never
+    // re-implement the format. Nothing is uploaded or paid for; only the
+    // embedding policy and `resolve` read from the network, so these calls can
+    // time out and are safe to retry. Needs antd 0.16.0 or later.
+
+    /**
+     * {@link #buildManifest(List, BuildManifestOptions)} with the default
+     * options: no name, no torrent info hashes, roots embedded.
+     *
+     * @param entries the files; each sets exactly one of {@code dataMap} or
+     *                {@code address}
+     * @return the {@code .ant} bytes, the link when it fits, and the entries
+     */
+    public BuiltManifest buildManifest(List<ManifestEntryInput> entries) {
+        return buildManifest(entries, BuildManifestOptions.DEFAULT);
+    }
+
+    /**
+     * Builds a {@code .ant} manifest from DataMaps and public addresses already
+     * in hand ({@code POST /v1/manifests/build}). Nothing is uploaded or paid
+     * for.
+     *
+     * @param entries the files; each sets exactly one of {@code dataMap} or
+     *                {@code address}
+     * @param options name, torrent info hashes and root embedding; {@code null}
+     *                means {@link BuildManifestOptions#DEFAULT}
+     * @return the {@code .ant} bytes, the link when it fits, and the entries
+     * @throws com.autonomi.antd.errors.BadRequestException for an entry the
+     *         daemon would reject, and so refused here before anything is sent
+     *         (both or neither of {@code dataMap} and {@code address}, a negative
+     *         size), or that it does reject (an invalid path, DataMap or
+     *         address); the message names each one as {@code entries[i]}, in
+     *         the daemon's own wording
+     */
+    public BuiltManifest buildManifest(List<ManifestEntryInput> entries, BuildManifestOptions options) {
+        ManifestWire.checkEntries(entries);
+        return ManifestWire.parseBuilt(
+                doJson("POST", "/v1/manifests/build", ManifestWire.buildBody(entries, options)));
+    }
+
+    /**
+     * Decodes {@code .ant} bytes ({@code POST /v1/manifests/decode}). With
+     * {@code resolve}, the daemon fetches each entry's DataMap (and wrapper
+     * records) to report {@link ManifestEntryInfo#exactSize()} and confirm the
+     * DataMap is on the network; content chunks are not fetched, and one
+     * entry's failure is reported in its {@link ManifestEntryInfo#error()}, not
+     * as a failed call.
+     *
+     * @param manifest the {@code .ant} bytes
+     * @param resolve  fetch each entry's DataMap
+     * @return the decoded manifest
+     * @throws com.autonomi.antd.errors.BadRequestException if {@code manifest}
+     *         is empty (refused before anything is sent) or the bytes are not a
+     *         manifest
+     */
+    public DecodedManifest decodeManifest(byte[] manifest, boolean resolve) {
+        ManifestWire.checkManifest(manifest);
+        return ManifestWire.parseDecoded(
+                doJson("POST", "/v1/manifests/decode", ManifestWire.decodeBody(manifest, resolve)));
+    }
+
+    /**
+     * Decodes an {@code ant://} manifest link, a file link or a bare 64-hex
+     * address ({@code POST /v1/manifests/decode}). A file link or address reads
+     * as one public entry with no path, from source
+     * {@value DecodedManifest#SOURCE_FILE_LINK}. See
+     * {@link #decodeManifest(byte[], boolean)} for {@code resolve}.
+     *
+     * @param link    the link or address
+     * @param resolve fetch each entry's DataMap
+     * @return the decoded manifest
+     * @throws com.autonomi.antd.errors.BadRequestException if {@code link} is
+     *         empty (refused before anything is sent) or is not a link
+     */
+    public DecodedManifest decodeManifestLink(String link, boolean resolve) {
+        ManifestWire.checkLink(link);
+        return ManifestWire.parseDecoded(
+                doJson("POST", "/v1/manifests/decode", ManifestWire.decodeLinkBody(link, resolve)));
+    }
+
     // Wallet
 
     public WalletAddress walletAddress() {
@@ -742,5 +826,232 @@ public class AntdClient implements AutoCloseable {
         String body = Json.object("upload_id", uploadId, "winner_pool_hash", winnerPoolHash);
         Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);
         return parseFinalizeUploadResult(j);
+    }
+
+    // Pointers
+    //
+    // Owner-signed, paid, mutable references. A pointer's address is derived
+    // from its owner's key and never changes; what it points at can be changed
+    // by the owner, who can also hand it over to another pointer for good.
+    // The daemon signs with owner keys it loaded at startup (--pointer-keys),
+    // so a write names the pointer by its address (owner), never by a key.
+    //
+    // Every write pays (about the price of one chunk), and every attempt pays
+    // again. This client never retries a create, update, transfer or finalize;
+    // callers must not either, except a finalize the daemon says it retained
+    // (CloseGroupShortfallException.isRetryable()). Reads are free to retry.
+
+    /**
+     * The pointers this daemon holds owner keys for, so can write
+     * ({@code GET /v1/pointers/keys}).
+     *
+     * @return the pointers' addresses (hex)
+     */
+    public List<String> pointerKeys() {
+        return PointerWire.parseKeys(doJson("GET", "/v1/pointers/keys", null));
+    }
+
+    /**
+     * Creates the pointer at {@code owner}, pointing at {@code target}, paid by
+     * the daemon wallet ({@code POST /v1/pointers}). {@code owner} is the
+     * pointer's address; the daemon must hold its key ({@link #pointerKeys()}).
+     *
+     * <p>Pays once per call and is never retried.
+     *
+     * @param owner  the pointer's address (hex)
+     * @param target the address to point at (hex)
+     * @param kind   what {@code target} is; {@code null} means
+     *               {@link PointerTargetKind#CHUNK}
+     * @return the stored state (counter 0)
+     * @throws com.autonomi.antd.errors.AlreadyExistsException if the pointer
+     *         exists, refused before anything is paid; use {@link #pointerUpdate}
+     * @throws com.autonomi.antd.errors.BadRequestException if the daemon holds
+     *         no key for {@code owner}
+     */
+    public PointerWriteResult pointerCreate(String owner, String target, PointerTargetKind kind) {
+        return PointerWire.parseWrite(doJson("POST", "/v1/pointers", PointerWire.writeBody(owner, target, kind)));
+    }
+
+    /**
+     * {@link #pointerCreate(String, String, PointerTargetKind)} at a chunk target.
+     *
+     * @param owner  the pointer's address (hex)
+     * @param target the chunk address to point at (hex)
+     * @return the stored state (counter 0)
+     */
+    public PointerWriteResult pointerCreate(String owner, String target) {
+        return pointerCreate(owner, target, PointerTargetKind.CHUNK);
+    }
+
+    /**
+     * Points the pointer at {@code owner} at {@code target}, paid by the daemon
+     * wallet ({@code POST /v1/pointers/update}). A pointer that does not exist
+     * yet is created at counter 0.
+     *
+     * <p>Pays once per call and is never retried.
+     *
+     * @param owner  the pointer's address (hex)
+     * @param target the address to point at (hex)
+     * @param kind   what {@code target} is: {@link PointerTargetKind#CHUNK}, or
+     *               {@link PointerTargetKind#POINTER} for a forwarding the owner
+     *               can still change; {@code null} means chunk
+     * @return the stored state
+     * @throws com.autonomi.antd.errors.PointerFinalException if the pointer has
+     *         been transferred or frozen (usually refused before anything is
+     *         paid; see {@link com.autonomi.antd.errors.PointerFinalException})
+     * @throws com.autonomi.antd.errors.ConflictException while a prepared write
+     *         to the pointer awaits payment (refused before paying), or if the
+     *         update lost to a newer state while in flight (possibly after
+     *         paying); read the pointer before writing again
+     */
+    public PointerWriteResult pointerUpdate(String owner, String target, PointerTargetKind kind) {
+        return PointerWire.parseWrite(doJson("POST", "/v1/pointers/update", PointerWire.writeBody(owner, target, kind)));
+    }
+
+    /**
+     * {@link #pointerUpdate(String, String, PointerTargetKind)} to a chunk target.
+     *
+     * @param owner  the pointer's address (hex)
+     * @param target the chunk address to point at (hex)
+     * @return the stored state
+     */
+    public PointerWriteResult pointerUpdate(String owner, String target) {
+        return pointerUpdate(owner, target, PointerTargetKind.CHUNK);
+    }
+
+    /**
+     * Hands the pointer at {@code owner} over to the pointer at
+     * {@code recipient}, for good, paid by the daemon wallet
+     * ({@code POST /v1/pointers/transfer}). Readers of the address are
+     * redirected to the recipient's pointer, which only its owner can move.
+     * Irreversible once stored.
+     *
+     * <p>Pays once per call and is never retried.
+     *
+     * @param owner     the pointer's address (hex)
+     * @param recipient the recipient pointer's address (hex), which must exist
+     * @return the stored final state and the close group's view of it
+     * @throws com.autonomi.antd.errors.PointerFinalException if the pointer is
+     *         already final, usually refused before anything is paid
+     * @throws com.autonomi.antd.errors.BadRequestException if {@code recipient}
+     *         does not exist or leads back
+     * @throws com.autonomi.antd.errors.CloseGroupShortfallException if too few
+     *         of the close group answered or stored it; this can happen before
+     *         paying (the transfer checks every peer first) or after, so check
+     *         the pointer with {@link #pointerFinality} before paying again
+     */
+    public PointerTransferResult pointerTransfer(String owner, String recipient) {
+        return PointerWire.parseTransfer(
+                doJson("POST", "/v1/pointers/transfer", PointerWire.transferBody(owner, recipient)));
+    }
+
+    /**
+     * Reads the pointer at {@code address} ({@code GET /v1/pointers/{address}}).
+     *
+     * @param address the pointer's address (hex)
+     * @return the state the network serves
+     * @throws com.autonomi.antd.errors.NotFoundException if there is none
+     */
+    public PointerRecord pointerGet(String address) {
+        return PointerWire.parseRecord(doJson("GET", PointerWire.addressPath(address), null));
+    }
+
+    /**
+     * Follows a chain of pointers from {@code address}, through forwardings and
+     * transfers alike, to the target at its end
+     * ({@code GET /v1/pointers/{address}/resolve}).
+     *
+     * @param address the pointer's address (hex)
+     * @return the target at the end of the chain
+     * @throws com.autonomi.antd.errors.NotFoundException if a pointer on the
+     *         chain does not exist
+     */
+    public PointerTarget pointerResolve(String address) {
+        return PointerWire.parseTarget(doJson("GET", PointerWire.addressPath(address) + "/resolve", null));
+    }
+
+    /**
+     * Asks the whole close group where the pointer at {@code address} stands
+     * ({@code GET /v1/pointers/{address}/finality}). Check it before relying on
+     * a transfer: only {@link PointerFinality#isFinal()} means the transfer is
+     * beyond dispute.
+     *
+     * @param address the pointer's address (hex)
+     * @return the close group's view
+     */
+    public PointerFinality pointerFinality(String address) {
+        return PointerWire.parseFinality(doJson("GET", PointerWire.addressPath(address) + "/finality", null));
+    }
+
+    /**
+     * Follows the transfers of the pointer at {@code address} to the pointer
+     * whose owner now decides what it resolves to
+     * ({@code GET /v1/pointers/{address}/controller}).
+     *
+     * @param address the pointer's address (hex)
+     * @return the controlling pointer and the transfers that lead to it
+     */
+    public PointerController pointerController(String address) {
+        return PointerWire.parseController(doJson("GET", PointerWire.addressPath(address) + "/controller", null));
+    }
+
+    /**
+     * Has the daemon sign {@code op} on the pointer at {@code owner} with its
+     * loaded key and quote it for an external signer
+     * ({@code POST /v1/pointers/prepare}). Pay
+     * {@link PointerPrepareResult#payments()} with {@code payForQuotes()}, then
+     * call {@link #pointerFinalize}. Needs no daemon wallet and pays nothing.
+     *
+     * <p>Every check the daemon-wallet methods make before paying is made here,
+     * before anything is quoted. While the prepared write awaits payment, other
+     * writes to the pointer throw
+     * {@link com.autonomi.antd.errors.ConflictException} until it is finalized
+     * or expires.
+     *
+     * @param owner the pointer's address (hex)
+     * @param op    the write to sign: {@link PointerOp.Create},
+     *              {@link PointerOp.Update} or {@link PointerOp.Transfer}
+     * @return the signed state and its payment
+     */
+    public PointerPrepareResult pointerPrepare(String owner, PointerOp op) {
+        return pointerPrepare(owner, op, PointerPrepareOptions.DEFAULT);
+    }
+
+    /**
+     * {@link #pointerPrepare(String, PointerOp)} with options;
+     * {@link PointerPrepareOptions#includeSignedQuotes()} populates
+     * {@link PointerPrepareResult#signedQuotes()}.
+     *
+     * @param owner   the pointer's address (hex)
+     * @param op      the write to sign
+     * @param options prepare options; {@code null} means the defaults
+     * @return the signed state and its payment
+     */
+    public PointerPrepareResult pointerPrepare(String owner, PointerOp op, PointerPrepareOptions options) {
+        return PointerWire.parsePrepare(
+                doJson("POST", "/v1/pointers/prepare", PointerWire.prepareBody(owner, op, options)));
+    }
+
+    /**
+     * Stores a prepared pointer write once its external signer has paid
+     * ({@code POST /v1/pointers/finalize}).
+     *
+     * <p>Never retried by this client. A write that falls short after payment
+     * throws {@link com.autonomi.antd.errors.CloseGroupShortfallException} with
+     * {@code isRetryable() == true}: the daemon kept the paid state under the
+     * same {@code uploadId}, and calling this method again with the same
+     * {@code uploadId} stores it against the same payment ({@code txHashes} is
+     * then ignored). Bound that loop; the session expires with the daemon's
+     * one-hour pending TTL. A finalize without the payment's hashes is a
+     * {@link com.autonomi.antd.errors.BadRequestException} and keeps the
+     * session, so it can be corrected.
+     *
+     * @param uploadId the upload id from {@link #pointerPrepare}
+     * @param txHashes map of quote_hash hex to payForQuotes() tx_hash hex
+     * @return the stored state; for a transfer, with the close group's view
+     */
+    public PointerFinalizeResult pointerFinalize(String uploadId, Map<String, String> txHashes) {
+        return PointerWire.parseFinalize(
+                doJson("POST", "/v1/pointers/finalize", PointerWire.finalizeBody(uploadId, txHashes)));
     }
 }

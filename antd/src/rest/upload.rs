@@ -6,6 +6,7 @@ use axum::Json;
 
 use crate::error::AntdError;
 use crate::evm_defaults;
+use crate::rest::json::ApiJson;
 use crate::state::{AppState, PaymentKind, UploadSession};
 use crate::types::*;
 
@@ -283,7 +284,7 @@ pub(crate) fn resolve_wave_tx_hashes(
 /// depth, pool commitments, and timestamp for `payForMerkleTree2()`.
 pub async fn prepare_upload(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<PrepareUploadRequest>,
+    ApiJson(req): ApiJson<PrepareUploadRequest>,
 ) -> Result<Json<PrepareUploadResponse>, AntdError> {
     let path = std::path::PathBuf::from(&req.path)
         .canonicalize()
@@ -326,7 +327,7 @@ pub async fn prepare_upload(
 /// Same as prepare_upload but takes base64-encoded data instead of a file path.
 pub async fn prepare_data_upload(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<PrepareDataUploadRequest>,
+    ApiJson(req): ApiJson<PrepareDataUploadRequest>,
 ) -> Result<Json<PrepareUploadResponse>, AntdError> {
     use base64::engine::general_purpose::STANDARD as BASE64;
     use base64::Engine;
@@ -631,7 +632,7 @@ pub(crate) async fn finalize_pending(
 /// [`finalize_pending`].
 pub async fn finalize_upload(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<FinalizeUploadRequest>,
+    ApiJson(req): ApiJson<FinalizeUploadRequest>,
 ) -> Result<Json<FinalizeUploadResponse>, AntdError> {
     let shape = pending_shape(&state, &req.upload_id).await?;
 

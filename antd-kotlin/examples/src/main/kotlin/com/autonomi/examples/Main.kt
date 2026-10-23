@@ -15,6 +15,12 @@ fun main(args: Array<String>) = runBlocking {
         "4" -> example04Files()
         "6" -> example06PrivateData()
         "7" -> example07ExternalSigner()
+        // Pays for every write and needs a never-written owner, so it runs
+        // only when asked for by number, never as part of "all".
+        "8" -> example08Pointers()
+        // Needs antd 0.16.0 or later, so it runs only when asked for
+        // by number, never as part of "all".
+        "9" -> example09Manifests()
         "all" -> {
             example01Connect()
             example02Data()
@@ -23,7 +29,7 @@ fun main(args: Array<String>) = runBlocking {
             example06PrivateData()
             example07ExternalSigner()
         }
-        else -> println("Unknown example: $example. Use 1-7 or 'all'.")
+        else -> println("Unknown example: $example. Use 1-9 or 'all' (which skips 8 and 9).")
     }
 }
 

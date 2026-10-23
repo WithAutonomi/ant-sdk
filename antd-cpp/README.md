@@ -186,7 +186,7 @@ int main() {
 The `GrpcClient` throws the same `antd::AntdError` hierarchy as the REST
 client, translating gRPC status codes to the appropriate error subclass.
 
-> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+> **Note:** The gRPC client covers wallet operations (address, balance, approve), `payment_mode` and the external-signer prepare/finalize flow, like REST.
 
 ## Prerequisites
 
@@ -248,6 +248,103 @@ All methods throw `antd::AntdError` (or a subclass) on failure.
 | `file_get_public(address, dest_path)` | Download a public file by address |
 | `file_cost(path, is_public, payment_mode)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+### Pointers
+
+On `Client`, `AsyncClient` (as `std::future`s) and `GrpcClient`. See [Pointers](#pointers) below.
+
+| Method | Description |
+|--------|-------------|
+| `pointer_keys()` | The pointers the daemon holds owner keys for — returns `std::vector<PointerKey>` |
+| `pointer_create(owner, target, kind)` | Create a pointer, paid by the daemon wallet — returns `PointerWriteResult` |
+| `pointer_update(owner, target, kind)` | Point a pointer at a new target (creates it if absent), paid — returns `PointerWriteResult` |
+| `pointer_transfer(owner, recipient)` | Hand a pointer over to another pointer for good, paid — returns `PointerTransferResult` |
+| `pointer_get(address)` | Read a pointer's current state — returns `PointerRecord` |
+| `pointer_resolve(address)` | Follow a chain of pointers to its target — returns `PointerTarget` |
+| `pointer_finality(address)` | Ask the whole close group where a pointer stands — returns `PointerFinality` |
+| `pointer_controller(address)` | Follow transfers to the pointer that now decides — returns `PointerController` |
+| `pointer_prepare(request)` | Sign a write and quote it for an external signer — returns `PointerPrepareResult` |
+| `pointer_finalize(upload_id, tx_hashes)` | Store a prepared write once paid — returns `PointerFinalizeResult` |
+
+## Pointers
+
+A pointer is a small, owner-signed, mutable reference (needs antd 0.16.0 or
+later, the first release with pointers). Its address is derived from its
+owner's key and never changes. What it points at (a chunk, such as a public
+file's data map, or another pointer) can be updated by the owner, and the
+owner can hand the pointer over to another pointer for good. The daemon signs
+with owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key
+files from `ant pointer keygen`), so writes name the pointer by its address
+(`owner`) and no key ever crosses the API. An owner the daemon holds no key
+for is a `BadRequestError`.
+
+**Every write pays, and every attempt pays again.** `pointer_create`,
+`pointer_update`, `pointer_transfer` and `pointer_finalize` each cost about
+one chunk's price, and the SDK never retries them. Do not wrap them in a
+retry loop: after a failure, read the pointer (`pointer_get`) to see what
+landed before writing again. Reads are free to retry.
+
+```cpp
+antd::Client client;
+const std::string owner = client.pointer_keys().at(0).address;
+auto bytes_of = [](std::string s) { return std::vector<uint8_t>(s.begin(), s.end()); };
+
+auto v1 = client.data_put_public(bytes_of("version 1"));
+auto v2 = client.data_put_public(bytes_of("version 2"));
+
+client.pointer_create(owner, v1.address);           // counter 0
+auto w = client.pointer_update(owner, v2.address);  // counter 1
+auto target = client.pointer_resolve(owner).target; // == v2.address
+
+auto f = client.pointer_finality(owner);
+if (f.status == antd::PointerFinalityStatus::Open && f.counter) {
+    std::cout << "open at counter " << *f.counter << "\n";
+}
+```
+
+- **Counters** are `std::uint64_t`. The daemon sends them as decimal strings
+  in both transports, because a final state sits at 2^64-1
+  (`antd::kPointerFinalCounter`). Anything that is not a plain decimal u64
+  (a sign, whitespace, an overflow) throws `InternalError`; it never reads as
+  zero.
+- **Unset values** (`transferred_to`, a finality's `counter`, `state` and
+  `majority`, a transfer's `finality` and `finality_error`) are
+  `std::optional`s. REST sends them as `null`, gRPC as `""` or an absent
+  message; both read as `std::nullopt`.
+- **Finality status** is `PointerFinalityStatus` (`Open`, `Settling`,
+  `Unconfirmed`, `Final`, `Forked`). A status a newer daemon adds reads as
+  `Unknown`, with the daemon's string in `PointerFinality::status_raw`. Only
+  `Final` means a transfer is beyond dispute.
+- **Addresses**: the daemon accepts a `0x` prefix but always returns bare
+  hex, so normalise before comparing.
+- **External signer**: `pointer_prepare(PointerPrepareRequest::update(owner,
+  target))` (or `create` / `transfer`) signs the write and quotes it; pay the
+  `payments` with `payForQuotes()`, then call `pointer_finalize(upload_id,
+  tx_hashes)`. Set `include_signed_quotes` on the request for the full signed
+  quotes. While a prepared write awaits payment, other writes to that pointer
+  throw `ConflictError` until it is finalized or expires (one hour). A
+  finalize that falls short after payment throws `CloseGroupShortfallError`
+  with `retryable == true`: the daemon kept the paid state, so repeat
+  `pointer_finalize` with the same `upload_id` (bound that loop).
+
+Pointer errors, over both transports:
+
+| Error Type | REST | gRPC | When |
+|-----------|------|------|------|
+| `AlreadyExistsError` | 409 `ALREADY_EXISTS` | `ALREADY_EXISTS` | `pointer_create` on an existing pointer |
+| `PointerFinalError` | 409 `POINTER_FINAL` | `FAILED_PRECONDITION` + trailer | The pointer was transferred or frozen; nothing can write it |
+| `PointerForkedError` (a `ForkError`) | 409 `POINTER_FORKED` | `FAILED_PRECONDITION` + trailer | The owner signed two final states and neither holds a majority |
+| `ConflictError` | 409 `CONFLICT` | `ABORTED` + trailer | A prepared write to the pointer awaits payment (refused before paying), or an update lost to a newer state while in flight (possibly after paying); read the pointer before paying again |
+| `CloseGroupShortfallError` | 503 `CLOSE_GROUP_SHORTFALL` | `UNAVAILABLE` + trailer | Too few of the close group answered or stored; `retryable` as above |
+
+REST maps them by the error body's `code`. gRPC maps them by the
+`x-antd-error-code` trailer, and only when the tag agrees with the status
+code listed; `FAILED_PRECONDITION` without the trailer is still a
+`PaymentError`, and `UNAVAILABLE` without it a `NetworkError`. These are new
+`AntdError` subclasses: a REST 409 carrying one of these codes no longer
+reads as `AlreadyExistsError`, and a REST 503 `CLOSE_GROUP_SHORTFALL` (which
+the daemon can return on any path once too few peers answer) no longer reads
+as `ServiceUnavailableError`.
+
 ## Error Handling
 
 All errors inherit from `antd::AntdError` (which inherits from `std::runtime_error`), so you can catch them at any granularity:
@@ -271,10 +368,15 @@ try {
 | `NotFoundError` | 404 | Resource not found |
 | `AlreadyExistsError` | 409 | Resource exists |
 | `ForkError` | 409 | Version conflict |
+| `PointerFinalError` | 409 (`code: POINTER_FINAL`) | Pointer transferred or frozen — see [Pointers](#pointers) |
+| `PointerForkedError` | 409 (`code: POINTER_FORKED`) | Pointer forked (a `ForkError`) |
+| `ConflictError` | 409 (`code: CONFLICT`) | A prepared pointer write awaits payment, or a pointer update lost to a newer state — see [Pointers](#pointers) |
 | `TooLargeError` | 413 | Payload too large |
 | `InternalError` | 500 | Server error |
 | `NetworkError` | 502 | Network unreachable |
 | `PartialUploadError` | 502 (`code: PARTIAL_UPLOAD`) | Finalize paid and stored some chunks, others missed quorum — see below |
+| `ServiceUnavailableError` | 503 | Service unavailable, e.g. no wallet configured |
+| `CloseGroupShortfallError` | 503 (`code: CLOSE_GROUP_SHORTFALL`) | Too few of the close group answered; `retryable` for a pointer finalize that kept the paid state |
 
 ### Partial uploads
 
@@ -343,6 +445,84 @@ for (int attempt = 1;; ++attempt) {
 backoff and stuck detection. Contract reference:
 [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
 
+## Manifests
+
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that
+describes a set of files: each with an optional path and size, and either an
+embedded DataMap (a private upload; the manifest is its key) or a public
+DataMap address. The daemon builds and decodes them, so the format is never
+re-implemented here. Needs antd 0.16.0 or later.
+
+**Nothing is uploaded or paid for.** Upload the files first (`data_put`,
+`file_put_public`, ...), then describe them. The daemon reads the network
+only to resolve DataMaps (the embedding policy on build, `resolve` on
+decode), so a call can time out; retrying is safe.
+
+On `Client`, `AsyncClient` (as `std::future`s) and `GrpcClient`; the types
+are in `antd/manifests.hpp`.
+
+| Method | Description |
+|--------|-------------|
+| `build_manifest(entries, options)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`.ant` bytes, `link`, entries) |
+| `decode_manifest(bytes, resolve)` | Decode `.ant` bytes — returns `DecodedManifest` |
+| `decode_manifest_link(link, resolve)` | Decode an `ant://` manifest link, file link or bare 64-hex address — returns `DecodedManifest` |
+
+```cpp
+antd::Client client;
+auto bytes_of = [](std::string s) { return std::vector<uint8_t>(s.begin(), s.end()); };
+auto one = client.data_put_public(bytes_of("first"));
+auto two = client.data_put_public(bytes_of("second"));
+
+antd::BuildManifestOptions opts;
+opts.name = "notes";
+auto built = client.build_manifest({
+    {.path = "notes/one.txt", .address = one.address},
+    {.path = "notes/two.txt", .address = two.address},
+}, opts);
+// built.manifest: the .ant bytes; built.link: "ant://manifest/..." (empty if
+// it would pass 1,500 bytes, so share the bytes instead)
+
+auto decoded = client.decode_manifest_link(built.link, /*resolve=*/true);
+for (const auto& e : decoded.entries) {
+    std::cout << e.effective_name << " " << e.kind << " "
+              << (e.exact_size ? std::to_string(*e.exact_size) : e.error) << "\n";
+}
+```
+
+- **Entries**: set exactly one of `data_map` (hex, embedded) or `address`
+  (hex, public). An entry with both or neither throws `BadRequestError`
+  (naming `entries[i]`) before anything is sent. `path` is optional (empty:
+  the entry extracts under its content address), as is `size` (the creator's
+  claim, recorded as given).
+- **Bytes**: `BuiltManifest::manifest` and `decode_manifest` take and return
+  raw bytes on both transports; the client handles REST's base64.
+- **Sizes** (`size`, `exact_size`) are `std::optional<std::uint64_t>`. Unset
+  is `std::nullopt`, never 0: REST omits the field, gRPC leaves the proto3
+  `optional` unset. `exact_size` comes from an embedded root DataMap, or from
+  a `resolve` decode.
+- **Embedding**: by default the daemon resolves each shrunk DataMap and
+  embeds its root when it is at most 64 KiB (`embed_roots`, always sent).
+  Set `BuildManifestOptions::keep_shrunk_data_maps` to embed them as given.
+- **Errors**: an invalid entry, path, hash or manifest is the daemon's 400
+  `BAD_REQUEST` (gRPC `INVALID_ARGUMENT`), thrown as `BadRequestError` with
+  the daemon's message, which names the entry (`entries[1]: invalid path
+  "../x": ...`). One entry's `resolve` failure is not a failed call: it is in
+  that entry's `error`, with `exact_size` unset.
+- **gRPC message size**: a manifest can be 64 MiB, past gRPC's 4 MiB default.
+  C++ gRPC has no per-call limit, so `GrpcClient` sends the manifest calls on
+  their own channel to the same target, created with `grpc::ChannelArguments`
+  `SetMaxReceiveMessageSize` and `SetMaxSendMessageSize` at 256 MiB. Every
+  other call keeps the default channel and limits.
+
+`examples/09-manifests.cpp` uploads two pieces of public data (paid), builds
+a manifest of them and decodes its link with `resolve`:
+`ANTD_BASE_URL=http://localhost:8082 ./build/09-manifests`. The live
+manifest test (`antd_live_manifest_tests`) pays for nothing and does nothing
+unless `ANTD_TEST_URL` and `ANTD_TEST_MANIFEST_ADDRESSES` (plus
+`ANTD_TEST_GRPC` in a gRPC build) are set; it also reads
+`ANTD_TEST_MANIFEST_SIZES`, `ANTD_TEST_MANIFEST_DATA_MAP`,
+`ANTD_TEST_MANIFEST_DATA_MAP_SIZE` and `ANTD_TEST_MANIFEST_LINK` when present.
+
 ## Building
 
 ```bash
@@ -366,3 +546,9 @@ See the [examples/](examples/) directory:
 - `04-files` — File and directory upload/download
 - `06-private-data` — Private encrypted data storage
 - `07-external-signer` — Two-phase upload paid by an external signer (runs foundry's `cast` without a shell, after validating the daemon's payment fields), with a bounded `finalize_with_retry` for partial stores
+- `08-pointers` — Create a pointer at public data, update it, resolve it and print its finality. Set `ANTD_POINTER_OWNER` to a pointer address the daemon holds a key for, and optionally `ANTD_BASE_URL` (default `http://localhost:8082`): `ANTD_POINTER_OWNER=<hex> ./build/08-pointers`. Every write it makes is paid.
+
+The live pointer test (`antd_live_pointer_tests`) does nothing unless
+`ANTD_TEST_URL` and `ANTD_TEST_POINTER_OWNERS` (two never-written owner
+addresses, comma-separated), plus `ANTD_TEST_GRPC` in a gRPC build, are set.
+It pays for its writes and spends both owners, so point it at a devnet.

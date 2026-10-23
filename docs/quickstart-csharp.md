@@ -85,11 +85,11 @@ var est = await client.DataCostAsync(payload);
 ```csharp
 // Store (encrypted)
 var secret = Encoding.UTF8.GetBytes("secret message");
-var result = await client.DataPutPrivateAsync(secret);
-var dataMap = result.Address;  // Keep this secret!
+var result = await client.DataPutAsync(secret);
+var dataMap = result.DataMap;  // Keep this secret!
 
 // Retrieve (decrypt)
-var decrypted = await client.DataGetPrivateAsync(dataMap);
+var decrypted = await client.DataGetAsync(dataMap);
 Console.WriteLine(Encoding.UTF8.GetString(decrypted));
 ```
 
@@ -97,15 +97,41 @@ Console.WriteLine(Encoding.UTF8.GetString(decrypted));
 
 ```csharp
 // Upload a file
-var result = await client.FileUploadPublicAsync("/path/to/file.txt");
+var result = await client.FilePutPublicAsync("/path/to/file.txt");
 
 // Download a file
-await client.FileDownloadPublicAsync(result.Address, "/path/to/output.txt");
+await client.FileGetPublicAsync(result.Address, "/path/to/output.txt");
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 var est = await client.FileCostAsync("/path/to/file.txt");
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs antd 0.16.0 or later (the first release with pointers). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```csharp
+var owner = (await client.PointerKeysAsync())[0];   // a pointer antd can write
+
+var v1 = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("version 1"));
+var v2 = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("version 2"));
+
+await client.PointerCreateAsync(owner, v1.Address);        // pays; counter 0
+await client.PointerUpdateAsync(owner, v2.Address);        // pays again; counter 1
+var target = await client.PointerResolveAsync(owner);      // target.Target == v2.Address (free)
+
+var finality = await client.PointerFinalityAsync(owner);   // free
+Console.WriteLine($"{finality.RawStatus}, counter {finality.Counter}");   // "open, counter 1"
+```
+
+Counters are `ulong`. Creating a pointer that exists is refused before paying: `ForkException` over REST, `AlreadyExistsException` over gRPC. `PointerTransferAsync`, `PointerGetAsync`, `PointerControllerAsync`, `PointerPrepareAsync` and `PointerFinalizeAsync` complete the set, on both clients.
+
+Runnable example: example 8 in `antd-csharp/Examples/Program.cs`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-csharp/Examples
+ANTD_POINTER_OWNER=<address> dotnet run -- 8
+```
 
 ## Error Handling
 
@@ -146,6 +172,35 @@ Exception hierarchy:
 | `TooLargeException` | 413 | Payload too large |
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
+
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs antd 0.16.0 or later. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```csharp
+var one = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("note one"));   // pays
+var two = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("note two"));   // pays
+
+var built = await client.BuildManifestAsync(new[]                                 // free
+{
+    ManifestEntryInput.Public(one.Address, "notes/one.txt"),
+    ManifestEntryInput.Public(two.Address, "notes/two.txt"),
+}, new BuildManifestOptions(Name: "example"));
+Console.WriteLine(built.Link);                    // null when over 1,500 bytes: share built.Manifest (byte[]) instead
+
+var decoded = await client.DecodeManifestLinkAsync(built.Link!, resolve: true);  // free
+foreach (var e in decoded.Entries)
+    Console.WriteLine($"{e.EffectiveName}: {e.ExactSize} bytes");
+```
+
+`DecodeManifestAsync(byte[] manifest, bool resolve = false)` takes raw `.ant` bytes. `ManifestEntryInput.Embedded(dataMap, path)` makes an embedded entry. Sizes are `ulong?`.
+
+Runnable example: example 9 in `antd-csharp/Examples/Program.cs`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-csharp/Examples
+ANTD_BASE_URL=http://localhost:8082 dotnet run -- 9
+```
 
 ## Examples
 

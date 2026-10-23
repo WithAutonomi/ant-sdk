@@ -11,6 +11,7 @@ from antd.exceptions import (
     NetworkError,
     NotFoundError,
     PaymentError,
+    ServiceUnavailableError,
     TooLargeError,
 )
 
@@ -25,6 +26,23 @@ try:
 except ImportError:  # antd SDK without the typed partial-upload error
     PartialUploadError = None  # type: ignore[assignment,misc]
 
+# The pointer-era errors arrived in the antd SDK together with the pointer
+# API. Guarded like ``PartialUploadError``: against an older SDK the server
+# starts without the pointer tools (see server.py) and these codes never
+# appear.
+try:
+    from antd.exceptions import (
+        CloseGroupShortfallError,
+        ConflictError,
+        PointerFinalError,
+        PointerForkedError,
+    )
+except ImportError:  # antd SDK without the pointer API
+    CloseGroupShortfallError = None  # type: ignore[assignment,misc]
+    ConflictError = None  # type: ignore[assignment,misc]
+    PointerFinalError = None  # type: ignore[assignment,misc]
+    PointerForkedError = None  # type: ignore[assignment,misc]
+
 _CODE_MAP: dict[type[AntdError], str] = {
     NotFoundError: "NOT_FOUND",
     AlreadyExistsError: "ALREADY_EXISTS",
@@ -34,9 +52,86 @@ _CODE_MAP: dict[type[AntdError], str] = {
     NetworkError: "NETWORK_ERROR",
     TooLargeError: "TOO_LARGE",
     InternalError: "INTERNAL_ERROR",
+    ServiceUnavailableError: "SERVICE_UNAVAILABLE",
 }
 if PartialUploadError is not None:
     _CODE_MAP[PartialUploadError] = "PARTIAL_UPLOAD"
+
+# What an agent should do next, for the codes where the wrong move costs
+# money. The lookup is by exact type, like _CODE_MAP, so PointerForkedError
+# (a ForkError subclass) gets its own entry rather than VERSION_CONFLICT.
+_HINTS: dict[type[AntdError], str] = {
+    ServiceUnavailableError: (
+        "The daemon could not proceed: it has no wallet configured, or too "
+        "few peers are available to pay or store yet. It is refused before "
+        "anything is paid, so it is safe to try again later; if it keeps "
+        "failing, the daemon needs a wallet or more time to connect."
+    ),
+}
+if PointerFinalError is not None:
+    _CODE_MAP[PointerFinalError] = "POINTER_FINAL"
+    _HINTS[PointerFinalError] = (
+        "The pointer is final (transferred or frozen): nothing can update or "
+        "transfer it again. Do not retry. This is usually refused before "
+        "paying, but a write that was already paid for when the network "
+        "refused it keeps that payment. pointer_controller shows the pointer "
+        "that now decides what this address resolves to."
+    )
+if PointerForkedError is not None:
+    _CODE_MAP[PointerForkedError] = "POINTER_FORKED"
+    _HINTS[PointerForkedError] = (
+        "The pointer's owner signed two different final states and no "
+        "majority of its close group holds either, so the network has no "
+        "answer for it. Do not retry; pointer_finality lists the rival states."
+    )
+if ConflictError is not None:
+    _CODE_MAP[ConflictError] = "CONFLICT"
+
+# CONFLICT covers two cases that differ in whether anything was paid: a write
+# refused, before paying, because a prepared write to the pointer awaits
+# payment; and an update that lost to a newer state while in flight, which may
+# already be paid for. The daemon's message says which; anything else gets the
+# hint that claims neither.
+_CONFLICT_PENDING_HINT = (
+    "A prepared write to this pointer awaits payment, so this write was "
+    "refused before paying. Finalize the prepared write with pointer_finalize, "
+    "or wait up to an hour for it to expire, then read the pointer with "
+    "pointer_get before writing."
+)
+_CONFLICT_MOVED_HINT = (
+    "This update lost to a newer state while it was in flight, so it may "
+    "already have been paid for. Do not repeat it automatically: read the "
+    "pointer with pointer_get, and ask the user before paying for another write."
+)
+_CONFLICT_HINT = (
+    "Another write to this pointer is in the way: either a prepared write "
+    "awaits payment (refused before paying) or this update lost to a newer "
+    "state (possibly after paying). Read the pointer with pointer_get, and ask "
+    "the user before paying for another write."
+)
+
+
+def _conflict_hint(message: str) -> str:
+    if "awaiting payment" in message:
+        return _CONFLICT_PENDING_HINT
+    if "moved while" in message:
+        return _CONFLICT_MOVED_HINT
+    return _CONFLICT_HINT
+if CloseGroupShortfallError is not None:
+    _CODE_MAP[CloseGroupShortfallError] = "CLOSE_GROUP_SHORTFALL"
+
+_SHORTFALL_RETRYABLE_HINT = (
+    "Retry the finalize, the payment was kept: call pointer_finalize again "
+    "with the same upload_id to store the paid state against the same "
+    "payment. No second payment is made. Stop after a few attempts; the kept "
+    "attempt expires after one hour."
+)
+_SHORTFALL_HINT = (
+    "Too few of the close group answered or stored. A read is free to retry "
+    "later. Do not repeat a paid write automatically: it may already have "
+    "been paid for and a repeat pays again. For a pointer, check it with "
+    "pointer_get or pointer_finality first. Ask the user before paying again."
+)
 
 
 def format_error(exc: AntdError) -> dict:
@@ -58,6 +153,12 @@ def format_error(exc: AntdError) -> dict:
     JSON literal ``true``). A malformed partial-upload body therefore reaches
     here as ``PARTIAL_UPLOAD`` or ``NETWORK_ERROR``, never as an unexpected
     exception.
+
+    The pointer-era codes (``POINTER_FINAL``, ``POINTER_FORKED``,
+    ``CONFLICT``, ``CLOSE_GROUP_SHORTFALL``) carry a ``hint`` saying what to
+    do next. ``CLOSE_GROUP_SHORTFALL`` also carries ``retryable``: True only
+    for a pointer finalize whose paid state the daemon kept, so the agent
+    retries that finalize and pays nothing more.
     """
     code = _CODE_MAP.get(type(exc), "UNKNOWN")
     d = {
@@ -75,6 +176,13 @@ def format_error(exc: AntdError) -> dict:
         d["retention_known"] = (
             bool(getattr(exc, "retention_known", False)) or exc.retryable is True
         )
+    if CloseGroupShortfallError is not None and isinstance(exc, CloseGroupShortfallError):
+        d["retryable"] = exc.retryable is True
+        d["hint"] = _SHORTFALL_RETRYABLE_HINT if d["retryable"] else _SHORTFALL_HINT
+    elif ConflictError is not None and type(exc) is ConflictError:
+        d["hint"] = _conflict_hint(str(exc))
+    elif type(exc) in _HINTS:
+        d["hint"] = _HINTS[type(exc)]
     return d
 
 

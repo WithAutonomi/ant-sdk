@@ -33,7 +33,9 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return try JSONDecoder.snakeCase.decode(T.self, from: data)
     }
 
-    private func postJSON<T: Decodable>(_ path: String, body: Any) async throws -> T {
+    // Internal, not private: the manifest methods (AntdRestClient+Manifests.swift)
+    // post through it from their own file.
+    func postJSON<T: Decodable>(_ path: String, body: Any) async throws -> T {
         guard let url = URL(string: "\(baseURL)\(path)") else { throw BadRequestError("invalid URL: \(baseURL)\(path)") }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -370,16 +372,21 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
             continuation.finish()
         }
 
-        /// Maps a non-2xx streaming response to an ``AntdError``. Prefers the
-        /// daemon's `{"error":"..."}` JSON envelope; falls back to the raw body
-        /// (matching the buffered ``ensureSuccess(_:data:)`` behaviour).
+        /// Maps a non-2xx streaming response to an ``AntdError``. The raw body
+        /// goes to the mapper first, as in the buffered
+        /// ``ensureSuccess(_:data:)`` path, so the envelope's `code` selects
+        /// the typed errors (e.g. `CLOSE_GROUP_SHORTFALL`). When no code
+        /// applies, the status-based error carries the envelope's `error` text
+        /// rather than the raw JSON.
         private static func streamError(status: Int, body: Data) -> AntdError {
-            var message = String(data: body, encoding: .utf8) ?? ""
-            if let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+            let raw = String(data: body, encoding: .utf8) ?? ""
+            let mapped = ErrorMapping.fromHTTPStatus(status, body: raw)
+            if mapped.message == raw,
+               let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
                let parsed = obj["error"] as? String {
-                message = parsed
+                return ErrorMapping.fromHTTPStatus(status, body: parsed)
             }
-            return ErrorMapping.fromHTTPStatus(status, body: message)
+            return mapped
         }
     }
 
@@ -630,6 +637,148 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         )
     }
 
+    // MARK: - Pointers
+    //
+    // A pointer's owner key lives in the daemon (`antd --pointer-keys`); a
+    // write names the pointer by its address. Every write pays, and every
+    // attempt pays again: nothing here retries a create, update, transfer or
+    // finalize. Reads are free to retry; a read during an update or churn can
+    // throw `CloseGroupShortfallError`.
+
+    public func pointerKeys() async throws -> [PointerKey] {
+        let resp: PointerKeysDTO = try await getJSON("/v1/pointers/keys")
+        return (resp.keys ?? []).map { PointerKey(address: $0.address ?? "") }
+    }
+
+    /// Creates the pointer at `owner`, paid by the daemon wallet
+    /// (`POST /v1/pointers`). Pays once and is never retried; see
+    /// ``AntdClientProtocol/pointerCreate(owner:target:kind:)``.
+    public func pointerCreate(owner: String, target: String, kind: PointerKind = .chunk) async throws -> PointerWriteResult {
+        try await pointerWrite("/v1/pointers", owner: owner, target: target, kind: kind)
+    }
+
+    /// Points the pointer at `owner` at `target`, paid by the daemon wallet
+    /// (`POST /v1/pointers/update`). Pays once and is never retried; see
+    /// ``AntdClientProtocol/pointerUpdate(owner:target:kind:)``.
+    public func pointerUpdate(owner: String, target: String, kind: PointerKind = .chunk) async throws -> PointerWriteResult {
+        try await pointerWrite("/v1/pointers/update", owner: owner, target: target, kind: kind)
+    }
+
+    private func pointerWrite(_ path: String, owner: String, target: String, kind: PointerKind) async throws -> PointerWriteResult {
+        let body: [String: Any] = ["owner": owner, "target": target, "kind": kind.rawValue]
+        let resp: PointerWriteDTO = try await postJSON(path, body: body)
+        return try resp.toModel()
+    }
+
+    /// Hands the pointer at `owner` over to `recipient` for good, paid by the
+    /// daemon wallet (`POST /v1/pointers/transfer`). Pays once and is never
+    /// retried; see ``AntdClientProtocol/pointerTransfer(owner:recipient:)``.
+    public func pointerTransfer(owner: String, recipient: String) async throws -> PointerTransferResult {
+        let body: [String: Any] = ["owner": owner, "recipient": recipient]
+        let resp: PointerTransferDTO = try await postJSON("/v1/pointers/transfer", body: body)
+        return PointerTransferResult(
+            address: resp.address ?? "",
+            stateId: resp.stateId ?? "",
+            finality: try resp.finality?.toModel(),
+            finalityError: PointerWire.nonEmpty(resp.finalityError)
+        )
+    }
+
+    /// `GET /v1/pointers/{address}`.
+    public func pointerGet(address: String) async throws -> PointerRecord {
+        let resp: PointerRecordDTO = try await getJSON("/v1/pointers/\(address)")
+        return PointerRecord(
+            address: resp.address ?? "",
+            owner: resp.owner ?? "",
+            counter: try PointerWire.counter("counter", resp.counter),
+            kind: resp.kind ?? "",
+            kindTag: PointerWire.kindTag(resp.kindTag),
+            target: resp.target ?? "",
+            stateId: resp.stateId ?? "",
+            isFinal: resp.isFinal ?? false,
+            transferredTo: PointerWire.nonEmpty(resp.transferredTo)
+        )
+    }
+
+    /// `GET /v1/pointers/{address}/resolve`.
+    public func pointerResolve(address: String) async throws -> PointerTarget {
+        let resp: PointerTargetDTO = try await getJSON("/v1/pointers/\(address)/resolve")
+        return PointerTarget(
+            kind: resp.kind ?? "",
+            kindTag: PointerWire.kindTag(resp.kindTag),
+            target: resp.target ?? ""
+        )
+    }
+
+    /// `GET /v1/pointers/{address}/finality`.
+    public func pointerFinality(address: String) async throws -> PointerFinality {
+        let resp: PointerFinalityDTO = try await getJSON("/v1/pointers/\(address)/finality")
+        return try resp.toModel()
+    }
+
+    /// `GET /v1/pointers/{address}/controller`.
+    public func pointerController(address: String) async throws -> PointerController {
+        let resp: PointerControllerDTO = try await getJSON("/v1/pointers/\(address)/controller")
+        return PointerController(
+            pointer: resp.pointer ?? "",
+            transfers: resp.transfers ?? [],
+            frozen: resp.frozen ?? false
+        )
+    }
+
+    /// `POST /v1/pointers/prepare`: the daemon signs `op` and quotes it for an
+    /// external signer. See
+    /// ``AntdClientProtocol/pointerPrepare(owner:op:options:)``.
+    public func pointerPrepare(owner: String, op: PointerOp, options: PointerPrepareOptions) async throws -> PointerPrepareResult {
+        var body: [String: Any] = ["owner": owner, "op": op.wireName]
+        switch op {
+        case .create(let target, let kind), .update(let target, let kind):
+            body["target"] = target
+            body["kind"] = kind.rawValue
+        case .transfer(let recipient):
+            body["recipient"] = recipient
+        }
+        if options.includeSignedQuotes { body["include_signed_quotes"] = true }
+        let resp: PointerPrepareDTO = try await postJSON("/v1/pointers/prepare", body: body)
+        return PointerPrepareResult(
+            uploadId: resp.uploadId ?? "",
+            op: resp.op ?? "",
+            address: resp.address ?? "",
+            stateId: resp.stateId ?? "",
+            counter: try PointerWire.counter("counter", resp.counter),
+            paymentType: resp.paymentType ?? "",
+            payments: (resp.payments ?? []).map {
+                PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount)
+            },
+            totalAmount: resp.totalAmount ?? "",
+            paymentVaultAddress: resp.paymentVaultAddress ?? "",
+            paymentTokenAddress: resp.paymentTokenAddress ?? "",
+            rpcUrl: resp.rpcUrl ?? "",
+            signedQuotes: (resp.signedQuotes ?? []).map {
+                SignedQuoteEntry(
+                    quoteHash: $0.quoteHash ?? "",
+                    quote: $0.quote ?? "",
+                    commitmentSidecar: PointerWire.nonEmpty($0.commitmentSidecar)
+                )
+            }
+        )
+    }
+
+    /// `POST /v1/pointers/finalize`: stores a prepared write once it is paid.
+    /// Never retried here; see
+    /// ``AntdClientProtocol/pointerFinalize(uploadId:txHashes:)`` for the
+    /// `retryable` contract.
+    public func pointerFinalize(uploadId: String, txHashes: [String: String]) async throws -> PointerFinalizeResult {
+        let body: [String: Any] = ["upload_id": uploadId, "tx_hashes": txHashes]
+        let resp: PointerFinalizeDTO = try await postJSON("/v1/pointers/finalize", body: body)
+        return PointerFinalizeResult(
+            address: resp.address ?? "",
+            stateId: resp.stateId ?? "",
+            counter: try PointerWire.counter("counter", resp.counter),
+            finality: try resp.finality?.toModel()
+        )
+    }
+
     // MARK: - Prepare DTO Mapping
 
     private func mapPrepareDTO(_ resp: PrepareUploadDTO) -> PrepareUploadResult {
@@ -805,6 +954,137 @@ private struct PrepareChunkDTO: Decodable {
 
 private struct AddressDTO: Decodable {
     let address: String
+}
+
+// Pointer DTOs. Counters are decimal strings on the wire (a final state sits
+// at UInt64.max) and are parsed strictly by `PointerWire.counter`; unset
+// values arrive as JSON `null`.
+
+private struct PointerKeysDTO: Decodable {
+    let keys: [PointerKeyDTO]?
+}
+
+private struct PointerKeyDTO: Decodable {
+    let address: String?
+}
+
+private struct PointerWriteDTO: Decodable {
+    let address: String?
+    let stateId: String?
+    let counter: String?
+
+    func toModel() throws -> PointerWriteResult {
+        PointerWriteResult(
+            address: address ?? "",
+            stateId: stateId ?? "",
+            counter: try PointerWire.counter("counter", counter)
+        )
+    }
+}
+
+private struct PointerRecordDTO: Decodable {
+    let address: String?
+    let owner: String?
+    let counter: String?
+    let kind: String?
+    let kindTag: UInt64?
+    let target: String?
+    let stateId: String?
+    let isFinal: Bool?
+    let transferredTo: String?
+}
+
+private struct PointerTargetDTO: Decodable {
+    let kind: String?
+    let kindTag: UInt64?
+    let target: String?
+}
+
+private struct PointerFinalStateDTO: Decodable {
+    let stateId: String?
+    let kind: String?
+    let kindTag: UInt64?
+    let target: String?
+    let holders: UInt64?
+    let transferredTo: String?
+
+    func toModel() -> PointerFinalState {
+        PointerFinalState(
+            stateId: stateId ?? "",
+            kind: kind ?? "",
+            kindTag: PointerWire.kindTag(kindTag),
+            target: target ?? "",
+            holders: UInt32(clamping: holders ?? 0),
+            transferredTo: PointerWire.nonEmpty(transferredTo)
+        )
+    }
+}
+
+private struct PointerFinalityDTO: Decodable {
+    let address: String?
+    let group: UInt64?
+    let answered: UInt64?
+    let status: String?
+    let counter: String?
+    let state: PointerFinalStateDTO?
+    let states: [PointerFinalStateDTO]?
+    let majority: PointerFinalStateDTO?
+    let transferredTo: String?
+
+    func toModel() throws -> PointerFinality {
+        PointerFinality(
+            address: address ?? "",
+            group: UInt32(clamping: group ?? 0),
+            answered: UInt32(clamping: answered ?? 0),
+            status: PointerFinalityStatus(wire: status ?? ""),
+            counter: try PointerWire.optionalCounter("counter", counter),
+            state: state?.toModel(),
+            states: (states ?? []).map { $0.toModel() },
+            majority: majority?.toModel(),
+            transferredTo: PointerWire.nonEmpty(transferredTo)
+        )
+    }
+}
+
+private struct PointerTransferDTO: Decodable {
+    let address: String?
+    let stateId: String?
+    let finality: PointerFinalityDTO?
+    let finalityError: String?
+}
+
+private struct PointerControllerDTO: Decodable {
+    let pointer: String?
+    let transfers: [String]?
+    let frozen: Bool?
+}
+
+private struct SignedQuoteDTO: Decodable {
+    let quoteHash: String?
+    let quote: String?
+    let commitmentSidecar: String?
+}
+
+private struct PointerPrepareDTO: Decodable {
+    let uploadId: String?
+    let op: String?
+    let address: String?
+    let stateId: String?
+    let counter: String?
+    let paymentType: String?
+    let payments: [PaymentInfoDTO]?
+    let totalAmount: String?
+    let paymentVaultAddress: String?
+    let paymentTokenAddress: String?
+    let rpcUrl: String?
+    let signedQuotes: [SignedQuoteDTO]?
+}
+
+private struct PointerFinalizeDTO: Decodable {
+    let address: String?
+    let stateId: String?
+    let counter: String?
+    let finality: PointerFinalityDTO?
 }
 
 extension JSONDecoder {

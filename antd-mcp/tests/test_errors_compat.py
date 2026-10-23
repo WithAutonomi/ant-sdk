@@ -1,7 +1,7 @@
 """antd-mcp must import and serve against an antd SDK that predates
 ``PartialUploadError``.
 
-The dependency floor requires antd >= 0.2.0, but an install that bypasses it
+The dependency floor requires antd >= 0.3.0, but an install that bypasses it
 (e.g. --no-deps) can still pair the server with an older SDK, so the import
 guard stays and is tested here. Both packages live in this checkout, so the
 regular suite always runs head against head and cannot see an incompatible
@@ -60,6 +60,64 @@ def test_normal_import_still_maps_partial_upload():
     assert errors._CODE_MAP[errors.PartialUploadError] == "PARTIAL_UPLOAD"
 
 
+# --- An antd SDK without the pointer API (0.2.0 and earlier) ---------------
+
+_POINTER_ERRORS = (
+    "PointerFinalError", "PointerForkedError", "ConflictError", "CloseGroupShortfallError",
+)
+
+
+def _import_without_pointer_api(monkeypatch):
+    """Strip the pointer API from the SDK the way 0.2.0 lacks it: no pointer
+    models, no pointer errors, no client methods."""
+    import antd
+    from antd._rest import AsyncRestClient
+
+    for name in _POINTER_ERRORS:
+        monkeypatch.delattr(antd_exceptions, name, raising=True)
+    for name in ("PointerKind", "PointerOp"):
+        monkeypatch.delattr(antd, name, raising=True)
+    monkeypatch.delattr(AsyncRestClient, "pointer_get", raising=True)
+    monkeypatch.delitem(sys.modules, "antd_mcp.errors", raising=False)
+    monkeypatch.delitem(sys.modules, "antd_mcp.server", raising=False)
+    errors = importlib.import_module("antd_mcp.errors")
+    server = importlib.import_module("antd_mcp.server")
+    return errors, server
+
+
+def test_errors_module_imports_without_pointer_errors(monkeypatch):
+    errors, _ = _import_without_pointer_api(monkeypatch)
+    for name in _POINTER_ERRORS:
+        assert getattr(errors, name) is None
+    assert not {"POINTER_FINAL", "POINTER_FORKED", "CONFLICT", "CLOSE_GROUP_SHORTFALL"} & set(
+        errors._CODE_MAP.values()
+    )
+    # An older SDK reads the daemon's 409s as AlreadyExistsError, as before.
+    payload = errors.format_error(antd_exceptions.AlreadyExistsError("Pointer is final", 409))
+    assert payload["error"] == "ALREADY_EXISTS"
+    assert "hint" not in payload
+
+
+def test_server_serves_without_pointer_tools_on_an_older_sdk(monkeypatch):
+    import asyncio
+
+    _, server = _import_without_pointer_api(monkeypatch)
+    assert server.POINTERS_AVAILABLE is False
+    names = {t.name for t in asyncio.run(server.mcp.list_tools())}
+    assert len(names) == 21  # 19 storage tools + the 2 manifest tools, no pointer tools
+    assert not any(n.startswith("pointer_") for n in names)
+    assert {"upload_file", "finalize_upload", "chunk_put"} <= names
+
+
+def test_server_registers_pointer_tools_on_the_current_sdk():
+    import asyncio
+
+    server = importlib.import_module("antd_mcp.server")
+    assert server.POINTERS_AVAILABLE is True
+    names = {t.name for t in asyncio.run(server.mcp.list_tools())}
+    assert sum(n.startswith("pointer_") for n in names) == 10
+
+
 def test_format_error_without_retention_known_attribute():
     # An antd release that has PartialUploadError but predates the retention
     # flag: the payload reads retention as unknown, except that retryable
@@ -82,3 +140,13 @@ def test_format_error_without_retention_known_attribute():
     del old_retryable.retention_known
     payload = errors.format_error(old_retryable)
     assert (payload["retryable"], payload["retention_known"]) == (True, True)
+
+
+def test_service_unavailable_maps_to_its_own_code_with_a_hint():
+    errors = importlib.import_module("antd_mcp.errors")
+    payload = errors.format_error(
+        antd_exceptions.ServiceUnavailableError("wallet not configured", 503)
+    )
+    assert payload["error"] == "SERVICE_UNAVAILABLE"
+    assert payload["status_code"] == 503
+    assert "try again later" in payload["hint"]

@@ -15,12 +15,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-public struct Antd_V1_GetWalletAddressRequest: Sendable {
+public nonisolated struct Antd_V1_GetWalletAddressRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -30,7 +30,7 @@ public struct Antd_V1_GetWalletAddressRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_GetWalletAddressResponse: Sendable {
+public nonisolated struct Antd_V1_GetWalletAddressResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -43,7 +43,7 @@ public struct Antd_V1_GetWalletAddressResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_GetWalletBalanceRequest: Sendable {
+public nonisolated struct Antd_V1_GetWalletBalanceRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -53,7 +53,7 @@ public struct Antd_V1_GetWalletBalanceRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_GetWalletBalanceResponse: Sendable {
+public nonisolated struct Antd_V1_GetWalletBalanceResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -69,7 +69,7 @@ public struct Antd_V1_GetWalletBalanceResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_WalletApproveRequest: Sendable {
+public nonisolated struct Antd_V1_WalletApproveRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -79,7 +79,7 @@ public struct Antd_V1_WalletApproveRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_WalletApproveResponse: Sendable {
+public nonisolated struct Antd_V1_WalletApproveResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -94,9 +94,9 @@ public struct Antd_V1_WalletApproveResponse: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "antd.v1"
+fileprivate nonisolated let _protobuf_package = "antd.v1"
 
-extension Antd_V1_GetWalletAddressRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetWalletAddressRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetWalletAddressRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -115,7 +115,7 @@ extension Antd_V1_GetWalletAddressRequest: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
-extension Antd_V1_GetWalletAddressResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetWalletAddressResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetWalletAddressResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
 
@@ -145,7 +145,7 @@ extension Antd_V1_GetWalletAddressResponse: SwiftProtobuf.Message, SwiftProtobuf
   }
 }
 
-extension Antd_V1_GetWalletBalanceRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetWalletBalanceRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetWalletBalanceRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -164,7 +164,7 @@ extension Antd_V1_GetWalletBalanceRequest: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
-extension Antd_V1_GetWalletBalanceResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetWalletBalanceResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetWalletBalanceResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}balance\0\u{3}gas_balance\0")
 
@@ -199,7 +199,7 @@ extension Antd_V1_GetWalletBalanceResponse: SwiftProtobuf.Message, SwiftProtobuf
   }
 }
 
-extension Antd_V1_WalletApproveRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_WalletApproveRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WalletApproveRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -218,7 +218,7 @@ extension Antd_V1_WalletApproveRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Antd_V1_WalletApproveResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_WalletApproveResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WalletApproveResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}approved\0")
 

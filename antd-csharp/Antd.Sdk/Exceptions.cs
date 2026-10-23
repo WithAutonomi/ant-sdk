@@ -32,6 +32,82 @@ public class ForkException : AntdException
         : base(message, statusCode) { }
 }
 
+/// <summary>
+/// The pointer is at its final state, transferred or frozen: nothing can
+/// update it or hand it over again (HTTP 409 with <c>code: "POINTER_FINAL"</c>;
+/// gRPC <c>FAILED_PRECONDITION</c> with <c>x-antd-error-code: POINTER_FINAL</c>).
+/// Usually refused before anything is paid: the daemon reads the pointer
+/// first. A write that was already paid for when the network refused it (the
+/// pointer became final while the write was in flight) keeps that payment, so
+/// read the pointer before paying again. Extends <see cref="ForkException"/>,
+/// which every REST 409 has mapped to, so existing
+/// <c>catch (ForkException)</c> blocks keep matching; catch this type first to
+/// tell it apart.
+/// </summary>
+public class PointerFinalException : ForkException
+{
+    public PointerFinalException(string message, int statusCode = 409)
+        : base(message, statusCode) { }
+}
+
+/// <summary>
+/// The pointer's owner signed two different final states and no one of them
+/// is held by a majority of the close group, so there is no answer to give
+/// (HTTP 409 with <c>code: "POINTER_FORKED"</c>; gRPC
+/// <c>FAILED_PRECONDITION</c> with <c>x-antd-error-code: POINTER_FORKED</c>).
+/// Extends <see cref="ForkException"/>.
+/// </summary>
+public class PointerForkedException : ForkException
+{
+    public PointerForkedException(string message, int statusCode = 409)
+        : base(message, statusCode) { }
+}
+
+/// <summary>
+/// The request conflicts with the resource's current state (HTTP 409 with
+/// <c>code: "CONFLICT"</c>; gRPC <c>ABORTED</c> with
+/// <c>x-antd-error-code: CONFLICT</c>). For pointers, two cases share this
+/// code, and it does not say which one happened or whether anything was paid:
+/// a write while a prepared write to the same pointer awaits payment is
+/// refused before paying (finalize the prepared write, or wait for it to
+/// expire); an update that lost to a newer state while it was in flight may
+/// already have been paid for. Read the pointer again and check what was paid
+/// before submitting another paid write.
+/// Extends <see cref="ForkException"/>, which both a REST 409 and a gRPC
+/// <c>ABORTED</c> mapped to before.
+/// </summary>
+public class ConflictException : ForkException
+{
+    public ConflictException(string message, int statusCode = 409)
+        : base(message, statusCode) { }
+}
+
+/// <summary>
+/// Too few of an address's close group answered, or took a write, for the
+/// result to be the network's (HTTP 503 with
+/// <c>code: "CLOSE_GROUP_SHORTFALL"</c>; gRPC <c>UNAVAILABLE</c> with
+/// <c>x-antd-error-code: CLOSE_GROUP_SHORTFALL</c>). Reads are free to retry;
+/// a read during an update or churn usually clears once it settles. A paid
+/// write is not, unless <see cref="Retryable"/> is <c>true</c>. Not only for
+/// pointers: a daemon with the pointer API reports a close group that fell
+/// short on any call this way (older daemons sent a 500).
+/// </summary>
+public class CloseGroupShortfallException : AntdException
+{
+    /// <summary>
+    /// <c>true</c> when a pointer finalize kept the paid state under the same
+    /// <c>upload_id</c>: repeat that finalize to store it against the same
+    /// payment, bounding the loop. <c>false</c> otherwise, including every
+    /// read and every daemon-wallet write. Over REST it is the body's
+    /// <c>retryable</c> flag; over gRPC, whether the status detail closes with
+    /// the daemon's <c>(paid attempt retained...)</c> hint.
+    /// </summary>
+    public bool Retryable { get; }
+
+    public CloseGroupShortfallException(string message, bool retryable = false, int statusCode = 503)
+        : base(message, statusCode) => Retryable = retryable;
+}
+
 public class BadRequestException : AntdException
 {
     public BadRequestException(string message, int statusCode = 400)
@@ -107,7 +183,8 @@ public class NetworkException : AntdException
 /// flags stay <c>false</c>: retention unknown, not "nothing retained".
 /// Over gRPC a partial-upload <c>ABORTED</c> used to map to
 /// <see cref="ForkException"/> and now maps to this exception (the daemon
-/// emits <c>ABORTED</c> only for PARTIAL_UPLOAD); an <c>ABORTED</c> whose
+/// emits <c>ABORTED</c> only for PARTIAL_UPLOAD and, tagged with
+/// <c>x-antd-error-code</c>, for a pointer CONFLICT); an <c>ABORTED</c> whose
 /// detail does not start with the prefix (including one that quotes it
 /// further in) is still a <see cref="ForkException"/>.
 /// See docs/external-signer-flow.md, section 6.
@@ -268,6 +345,12 @@ internal static partial class ExceptionMapping
         // status-based mapping below.
         if (TryParsePartialUploadBody(body, code, out var partial))
             return partial!;
+        // POINTER_FINAL, POINTER_FORKED, CONFLICT and ALREADY_EXISTS are 409s and
+        // CLOSE_GROUP_SHORTFALL a 503, statuses older errors share: map them
+        // by the body's code onto their own types.
+        var typed = FromTypedCodeBody(body, code);
+        if (typed != null)
+            return typed;
         return code switch
         {
             400 => new BadRequestException(body, code),
@@ -280,6 +363,102 @@ internal static partial class ExceptionMapping
             503 => new ServiceUnavailableException(body, code),
             _ => new AntdException(body, code),
         };
+    }
+
+    /// <summary>Daemon code for a pointer at its final state (409 / FAILED_PRECONDITION).</summary>
+    private const string PointerFinalCode = "POINTER_FINAL";
+
+    /// <summary>Daemon code for a pointer with rival final states (409 / FAILED_PRECONDITION).</summary>
+    private const string PointerForkedCode = "POINTER_FORKED";
+
+    /// <summary>Daemon code for a write that conflicts with the pointer's state (409 / ABORTED).</summary>
+    private const string ConflictCode = "CONFLICT";
+
+    /// <summary>Daemon code for creating something that already exists (409 / ALREADY_EXISTS).</summary>
+    private const string AlreadyExistsCode = "ALREADY_EXISTS";
+
+    /// <summary>Daemon code for a close group that fell short (503 / UNAVAILABLE).</summary>
+    private const string CloseGroupShortfallCode = "CLOSE_GROUP_SHORTFALL";
+
+    /// <summary>
+    /// gRPC metadata key the daemon (with the pointer API) sets on statuses
+    /// whose code is shared with older errors, carrying the REST <c>code</c>.
+    /// </summary>
+    internal const string ErrorCodeTrailer = "x-antd-error-code";
+
+    /// <summary>
+    /// Maps a REST error body whose <c>code</c> is one of the daemon's codes
+    /// that share an HTTP status with older errors; <c>null</c> for any other
+    /// code, or a body that is not a readable JSON object, which keeps the
+    /// status-based mapping. The message is the body's <c>error</c> string
+    /// (the raw body when that is missing). <c>retryable</c> counts only as a
+    /// JSON <c>true</c>. The body is network input, so this never throws.
+    /// </summary>
+    private static AntdException? FromTypedCodeBody(string body, int statusCode)
+    {
+        var trimmed = body?.TrimStart() ?? "";
+        if (trimmed.Length == 0 || trimmed[0] != '{')
+            return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(trimmed);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            var message = ReadString(root, "error") ?? body!;
+            var retryable = root.TryGetProperty("retryable", out var r) && r.ValueKind == JsonValueKind.True;
+            return ReadString(root, "code") switch
+            {
+                PointerFinalCode => new PointerFinalException(message, statusCode),
+                PointerForkedCode => new PointerForkedException(message, statusCode),
+                ConflictCode => new ConflictException(message, statusCode),
+                AlreadyExistsCode => new AlreadyExistsException(message, statusCode),
+                CloseGroupShortfallCode => new CloseGroupShortfallException(message, retryable, statusCode),
+                _ => null,
+            };
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException or ArgumentException)
+        {
+            // Same unreadable-body cases as TryParsePartialUploadBody.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Maps a gRPC status the daemon tagged with <c>x-antd-error-code</c>,
+    /// when the tag and the status code agree: <c>FAILED_PRECONDITION</c> for
+    /// POINTER_FINAL and POINTER_FORKED, <c>ABORTED</c> for CONFLICT,
+    /// <c>UNAVAILABLE</c> for CLOSE_GROUP_SHORTFALL. Anything else (no tag, a
+    /// tag this SDK does not know, or a tag on another code) is <c>null</c>
+    /// and keeps the code-based mapping, so a <c>FAILED_PRECONDITION</c>
+    /// without a tag is still a <see cref="PaymentException"/>.
+    /// </summary>
+    private static AntdException? FromErrorCodeTrailer(RpcException ex, string detail)
+    {
+        var tag = ex.Trailers?.GetValue(ErrorCodeTrailer);
+        if (tag is null) return null;
+        return (ex.StatusCode, tag) switch
+        {
+            (Grpc.Core.StatusCode.FailedPrecondition, PointerFinalCode) => new PointerFinalException(detail),
+            (Grpc.Core.StatusCode.FailedPrecondition, PointerForkedCode) => new PointerForkedException(detail),
+            (Grpc.Core.StatusCode.Aborted, ConflictCode) => new ConflictException(detail),
+            // gRPC carries no structured detail: a pointer finalize that kept
+            // the paid state closes its message with the same
+            // "(paid attempt retained...)" hint a retained partial upload does.
+            (Grpc.Core.StatusCode.Unavailable, CloseGroupShortfallCode) =>
+                new CloseGroupShortfallException(detail, ClosesWithRetainedHint(detail)),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// <c>true</c> when the message ends with the daemon's
+    /// <c>(paid attempt retained...)</c> hint, matched as for a partial
+    /// upload: the last parenthesised group, closing the message.
+    /// </summary>
+    internal static bool ClosesWithRetainedHint(string? message)
+    {
+        var tail = PartialUploadRetentionTail().Match(message ?? "");
+        return tail.Success && tail.Groups[1].Value == PartialUploadRetainedHint;
     }
 
     /// <summary>
@@ -409,6 +588,11 @@ internal static partial class ExceptionMapping
         // the latter as Status(StatusCode="...", Detail="..."), which would
         // defeat the anchored PARTIAL_UPLOAD match below.
         var detail = ex.Status.Detail;
+        // The pointer and close-group errors share status codes with older
+        // errors; the daemon tells them apart with x-antd-error-code.
+        var typed = FromErrorCodeTrailer(ex, detail);
+        if (typed != null)
+            return typed;
         return ex.StatusCode switch
         {
             Grpc.Core.StatusCode.NotFound => new NotFoundException(detail),
@@ -422,7 +606,8 @@ internal static partial class ExceptionMapping
             // and one of the daemon's two hints at the very end of the
             // detail, and only "paid attempt retained" sets Retryable. Such
             // an ABORTED used to map to ForkException; the daemon emits
-            // ABORTED only for PARTIAL_UPLOAD. Any other ABORTED, including
+            // ABORTED only for PARTIAL_UPLOAD and a tagged CONFLICT (mapped
+            // above). Any other ABORTED, including
             // one that quotes the prefix further into its detail, keeps the
             // pre-existing version-conflict mapping.
             Grpc.Core.StatusCode.Aborted => AbortedFromGrpc(detail),

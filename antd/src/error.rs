@@ -22,6 +22,10 @@ pub enum AntdError {
     #[error("Too large for memory")]
     TooLarge,
 
+    /// A request body over the route's size limit, refused before parsing.
+    #[error("Payload too large: {0}")]
+    PayloadTooLarge(String),
+
     #[error("Timeout: {0}")]
     Timeout(String),
 
@@ -114,6 +118,7 @@ impl AntdError {
             AntdError::Payment(_) => "PAYMENT_REQUIRED",
             AntdError::Network(_) => "NETWORK_ERROR",
             AntdError::TooLarge => "TOO_LARGE",
+            AntdError::PayloadTooLarge(_) => "PAYLOAD_TOO_LARGE",
             AntdError::Timeout(_) => "TIMEOUT",
             AntdError::ServiceUnavailable(_) => "SERVICE_UNAVAILABLE",
             AntdError::NotImplemented(_) => "NOT_IMPLEMENTED",
@@ -124,6 +129,17 @@ impl AntdError {
             AntdError::PointerFinal(_) => "POINTER_FINAL",
             AntdError::PointerForked(_) => "POINTER_FORKED",
             AntdError::Conflict(_) => "CONFLICT",
+        }
+    }
+
+    /// Whether the paid attempt was retained, so the same finalize (same
+    /// `upload_id`) may be repeated against the same payment. `None` where
+    /// that is unknown or does not apply.
+    pub fn retryable(&self) -> Option<bool> {
+        match self {
+            AntdError::PartialUpload { retryable, .. } => Some(*retryable),
+            AntdError::CloseGroupShortfall { retryable, .. } => *retryable,
+            _ => None,
         }
     }
 
@@ -206,7 +222,7 @@ impl IntoResponse for AntdError {
             AntdError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AntdError::Payment(_) => StatusCode::PAYMENT_REQUIRED,
             AntdError::Network(_) => StatusCode::BAD_GATEWAY,
-            AntdError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            AntdError::TooLarge | AntdError::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             AntdError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
             AntdError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             AntdError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
@@ -288,20 +304,28 @@ impl From<AntdError> for tonic::Status {
             // the application level — a repeat FinalizeUpload with the same
             // upload_id when the paid attempt was retained (`retryable`), or
             // a re-prepare otherwise — not a blind replay of the same call.
-            // Counts and the retryable hint stay in the message until the
-            // proto grows structured detail fields.
-            e @ AntdError::PartialUpload { .. } => tonic::Status::aborted(e.to_string()),
+            // `retryable` rides along as metadata; the counts stay in the
+            // message until the proto grows structured detail fields.
+            e @ AntdError::PartialUpload { .. } => {
+                let retryable = e.retryable();
+                with_retryable(tonic::Status::aborted(e.to_string()), retryable)
+            }
             // These share gRPC status codes with older errors, so the antd
             // code rides along as metadata for clients to tell them apart
             // without parsing the message.
             e @ AntdError::CloseGroupShortfall { .. } => {
-                with_code(tonic::Status::unavailable(e.to_string()), e.code())
+                let retryable = e.retryable();
+                let status = with_code(tonic::Status::unavailable(e.to_string()), e.code());
+                with_retryable(status, retryable)
             }
             e @ (AntdError::PointerFinal(_) | AntdError::PointerForked(_)) => {
                 with_code(tonic::Status::failed_precondition(e.to_string()), e.code())
             }
             e @ AntdError::Conflict(_) => {
                 with_code(tonic::Status::aborted(e.to_string()), e.code())
+            }
+            e @ AntdError::PayloadTooLarge(_) => {
+                with_code(tonic::Status::resource_exhausted(e.to_string()), e.code())
             }
         }
     }
@@ -311,6 +335,20 @@ impl From<AntdError> for tonic::Status {
 fn with_code(mut status: tonic::Status, code: &str) -> tonic::Status {
     if let Ok(value) = code.parse() {
         status.metadata_mut().insert("x-antd-error-code", value);
+    }
+    status
+}
+
+/// Attach whether the paid attempt was retained, the REST body's `retryable`,
+/// as `x-antd-retryable: true|false`, so gRPC clients need not match the
+/// message tail. Left off when unknown, as REST leaves the field out.
+fn with_retryable(mut status: tonic::Status, retryable: Option<bool>) -> tonic::Status {
+    if let Some(retryable) = retryable {
+        let value = if retryable { "true" } else { "false" };
+        status.metadata_mut().insert(
+            "x-antd-retryable",
+            tonic::metadata::MetadataValue::from_static(value),
+        );
     }
     status
 }
@@ -537,6 +575,44 @@ mod tests {
                 Some(antd_code)
             );
         }
+    }
+
+    #[test]
+    fn grpc_status_carries_retryable_as_metadata() {
+        let retryable = |e: AntdError| {
+            tonic::Status::from(e)
+                .metadata()
+                .get("x-antd-retryable")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+        };
+        let partial = |retryable| AntdError::PartialUpload {
+            stored: 1,
+            failed: 1,
+            total: 2,
+            reason: "x".into(),
+            retryable,
+        };
+        let shortfall = |retryable| AntdError::CloseGroupShortfall {
+            message: "x".into(),
+            retryable,
+        };
+        assert_eq!(retryable(partial(true)).as_deref(), Some("true"));
+        assert_eq!(retryable(partial(false)).as_deref(), Some("false"));
+        assert_eq!(retryable(shortfall(Some(true))).as_deref(), Some("true"));
+        // Unknown retention is left off, as REST leaves `retryable` out.
+        assert_eq!(retryable(shortfall(None)), None);
+        assert_eq!(retryable(AntdError::Conflict("x".into())), None);
+
+        // The shortfall keeps its code tag next to the new key.
+        let status = tonic::Status::from(shortfall(Some(true)));
+        assert_eq!(
+            status
+                .metadata()
+                .get("x-antd-error-code")
+                .and_then(|v| v.to_str().ok()),
+            Some("CLOSE_GROUP_SHORTFALL")
+        );
     }
 
     #[test]

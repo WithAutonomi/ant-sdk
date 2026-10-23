@@ -259,17 +259,20 @@ Response: `{"data": "<base64>"}`
 #### `GET /v1/data/public/{addr}/stream`
 Stream public data as chunked response. Same path params as above.
 
-#### `POST /v1/data/private`
-Store private (encrypted) data. Returns a data map instead of address.
+#### `POST /v1/data`
+Store private (encrypted) data. Returns a caller-held DataMap instead of an address; the DataMap is NOT stored on-network.
 
 Request: `{"data": "<base64>", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
 Response: `{"data_map": "<hex>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
-#### `GET /v1/data/private`
-Retrieve private data using data map.
+#### `POST /v1/data/get`
+Retrieve private data using a caller-held DataMap. POST so the hex DataMap (which can be many KB) goes in the body, not the URL.
 
-Query params: `data_map=<hex>`
+Request: `{"data_map": "<hex>"}`
 Response: `{"data": "<base64>"}`
+
+#### `POST /v1/data/stream`
+Stream private data from a DataMap as `application/octet-stream` instead of a base64 JSON body. Same request as `POST /v1/data/get`. Honours a `Range` header (206 with `Content-Range`; 416 if unsatisfiable).
 
 #### `POST /v1/data/cost`
 Estimate cost to store data. Samples up to 5 chunk addresses for the on-chain
@@ -295,14 +298,14 @@ Response: `{"data": "<base64>"}`
 
 Upload and download files/directories from the local filesystem.
 
-#### `POST /v1/files/upload/public`
-Upload a local file.
+#### `POST /v1/files/public`
+Upload a local file publicly. Also stores the DataMap on-network as an additional chunk (extra payment) and returns its address.
 
 Request: `{"path": "/absolute/path/to/file", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
 Response: `{"address": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
-#### `POST /v1/files/download/public`
-Download a file to a local path.
+#### `POST /v1/files/public/get`
+Download a public file to a local path, from the address `POST /v1/files/public` returned.
 
 Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 
@@ -478,9 +481,11 @@ pointer has been transferred or frozen.
 Hand a pointer over to the recipient's pointer, for good (ADR-0018). Readers of
 the address are redirected to the recipient's pointer; the address stays the
 same; the old key can change nothing. Irreversible once stored. Refused before
-paying if the pointer is already final, the recipient does not exist or leads
-back, or not every peer of the close group answered (`503 CLOSE_GROUP_SHORTFALL`,
-free to retry).
+paying if the recipient does not exist or leads back, and usually if the
+pointer is already final. `503 CLOSE_GROUP_SHORTFALL` means too few of the close
+group answered or stored it: that can happen before paying (the transfer checks
+every peer first) or after, so check `GET /v1/pointers/{addr}/finality` before
+paying again.
 Request: `{"owner": "<hex>", "recipient": "<hex>"}`
 Response: `{"address": "<hex>", "state_id": "<hex>", "finality": {...} | null, "finality_error": "..."}`
 
@@ -501,8 +506,8 @@ Follow transfers to the pointer whose owner now decides. Response: `{"pointer", 
 #### `POST /v1/pointers/prepare`
 External signer: antd signs the write with its loaded key and quotes it; the
 caller pays with `payForQuotes()`. Needs no daemon wallet.
-Request: `{"owner": "<hex>", "op": "create|update|transfer", "target": "<hex>", "kind": "chunk", "recipient": "<hex>"}`
-Response: `{"upload_id", "op", "address", "state_id", "counter", "payment_type": "wave_batch", "payments": [...], "total_amount", "payment_vault_address", "payment_token_address", "rpc_url"}`
+Request: `{"owner": "<hex>", "op": "create|update|transfer", "target": "<hex>", "kind": "chunk", "recipient": "<hex>", "include_signed_quotes": false}`
+Response: `{"upload_id", "op", "address", "state_id", "counter", "payment_type": "wave_batch", "payments": [...], "total_amount", "payment_vault_address", "payment_token_address", "rpc_url", "signed_quotes": [...]}` (`signed_quotes` only when the request set `include_signed_quotes`)
 While a prepared write is pending, other writes to that pointer answer `409 CONFLICT`.
 
 #### `POST /v1/pointers/finalize`
@@ -520,43 +525,130 @@ Pointer error codes: `CLOSE_GROUP_SHORTFALL` (503; reads are free to retry),
 
 ### Manifests (ADR-0006)
 
-Stateless build and decode of `.ant` manifests and `ant://` links (antd
-0.16.0+). The format, content addresses and portable path rules come from
-ant-core; nothing is uploaded or paid for. The network is touched only to
-resolve DataMaps.
+Stateless build and decode of `.ant` manifests and `ant://` links (needs antd
+0.16.0 or later). A manifest describes a set of files as one
+document: each entry has an optional `path` and `size` and either an embedded
+DataMap (a private file: the manifest is its key) or the address of a public
+file. The format, content addresses and portable path rules come from
+ant-core, so the same inputs give the `ant` CLI's exact bytes. **Nothing is
+uploaded or paid for**, and the daemon needs no wallet. The network is read
+only to resolve DataMaps (the embedding policy on build, `resolve` on decode),
+so a call can time out; retrying is safe. Upload the files first
+(`POST /v1/data`, `POST /v1/data/public`, `POST /v1/files`,
+`POST /v1/files/public`) and build from the DataMaps and addresses they return.
 
 #### `POST /v1/manifests/build`
-Build a manifest from DataMaps (hex, embedded) and public addresses already
-in hand. Each entry has exactly one of `data_map` or `address`. `size` is
-recorded as given (the creator's claim). With `embed_roots` (default true), a
-shrunk DataMap is resolved and its root embedded when it is at most 64 KiB,
-as the `ant` CLI does; the same inputs give the CLI's exact bytes.
+Build a manifest from DataMaps (hex, embedded) and public addresses already in
+hand. Each entry has **exactly one** of `data_map` (the hex a private upload
+returns) or `address` (64 hex: a public file's DataMap address); both or
+neither is a 400. `path` is a relative portable path (no `..`, no leading
+slash, no empty component; unset or empty: the entry extracts under its content
+address). `size` is recorded as given, the creator's claim; unset records none.
+`name` is a suggested root directory name (one portable path component).
+`torrent_info_hashes` are hex, 40 characters for v1 and/or 64 for v2.
+`embed_roots` (default true): a shrunk DataMap is resolved and its root embedded
+when the root is at most 64 KiB, as the `ant` CLI does, so readers skip that
+fetch; `false` embeds DataMaps exactly as given.
 
 Request:
 ```json
 {
   "name": "album",
   "embed_roots": true,
+  "torrent_info_hashes": [],
   "entries": [
     {"path": "photos/a.jpg", "data_map": "<hex>", "size": 123, "sha256": "<hex>"},
     {"path": "readme.txt", "address": "<64 hex>"}
   ]
 }
 ```
-Response: `{"manifest": "<base64 .ant>", "link": "ant://manifest/...", "entries": [{"effective_name", "path", "size", "sha256", "kind", "content_address", "exact_size"}]}`.
-`sha256` (optional, hex) is recorded as given; pass the `sha256` an upload
-returned, and `ant manifest download` checks the file against it.
-`link` is present only when it fits 1,500 bytes. Invalid entries are a 400
-that names every bad entry (`entries[i]: ...`).
+
+Response (`manifest` is the base64 of the raw `.ant` bytes):
+```json
+{
+  "manifest": "<base64 .ant>",
+  "link": "ant://manifest/...",
+  "entries": [
+    {"effective_name": "photos/a.jpg", "path": "photos/a.jpg", "size": 123,
+     "sha256": "<hex>", "kind": "embedded", "content_address": "<64 hex>",
+     "exact_size": 123},
+    {"effective_name": "readme.txt", "path": "readme.txt",
+     "kind": "public", "content_address": "<64 hex>"}
+  ]
+}
+```
+- `entries` come back in encoded order, sorted by `effective_name` (the path, or
+  the content address in hex when there is no path), not in request order.
+- `link` is present only when it fits 1,500 bytes; otherwise it is omitted and
+  the `.ant` bytes (`manifest`) are what you share.
+- Unset fields are omitted: `size` when none was recorded, `exact_size` when
+  unknown (an embedded root DataMap carries it, so embedded entries have it
+  after `embed_roots`), `path` when there is none. Never `0` for unset: `0` is
+  an empty file.
+- `sha256` (optional, hex) is recorded as given; pass the `sha256` an upload
+  returned, and `ant manifest download` checks the file against it.
+- `content_address` is the file's public DataMap address, the same for a private
+  and a public upload of one file.
 
 #### `POST /v1/manifests/decode`
-Decode `{"manifest": "<base64 .ant>"}` or `{"link": "ant://manifest/... | ant://<addr> | <addr>"}`.
-With `"resolve": true`, each entry's DataMap is fetched and resolved to
-report `exact_size`; a failure is reported in that entry's `error` instead of
-failing the call. Embedded entries carry `data_map` in the hex form the
-download routes accept.
+Decode a manifest. Give exactly one of `manifest` (base64 `.ant` bytes) or
+`link` (`ant://manifest/...`, an `ant://<address>` file link, or a bare 64-hex
+address); both or neither is a 400.
+Request: `{"manifest": "<base64 .ant>", "resolve": false}` or `{"link": "ant://manifest/...", "resolve": true}`
 
-Response: `{"source": "manifest" | "file_link", "name", "torrent_info_hash_v1", "torrent_info_hash_v2", "entries": [...]}`
+`resolve` (default false) fetches each entry's DataMap, and its wrapper
+records, to report `exact_size` and confirm the DataMap is on the network.
+Content chunks are not fetched. One entry's failure is reported in that entry's
+`error` and `exact_size` stays unset; it does not fail the call.
+
+Response:
+```json
+{
+  "source": "manifest",
+  "name": "album",
+  "torrent_info_hash_v1": "<40 hex>",
+  "torrent_info_hash_v2": "<64 hex>",
+  "entries": [
+    {"effective_name": "photos/a.jpg", "path": "photos/a.jpg", "size": 123,
+     "kind": "embedded", "content_address": "<64 hex>",
+     "data_map": "<hex>", "exact_size": 123},
+    {"effective_name": "readme.txt", "path": "readme.txt", "kind": "public",
+     "content_address": "<64 hex>", "exact_size": 40}
+  ]
+}
+```
+- `source` is `"manifest"`, or `"file_link"` for a file link or bare address,
+  which decodes as one public entry with no path and no `name`.
+- Embedded entries carry `data_map` in the hex form the download routes accept
+  (`POST /v1/data/get`, `POST /v1/files/get`). Public entries have none: use
+  `content_address` with `GET /v1/data/public/{addr}` or
+  `POST /v1/files/public/get`.
+- `name` and the torrent hashes are omitted when absent.
+
+Limits: a manifest is at most 64 MiB and 100,000 entries; each `data_map` at
+most 10 MiB; request bodies at most 100 MiB. A link is recommended at no more
+than 1,500 bytes; past that `link` is omitted. Error messages list up to 20
+bad entries.
+
+Errors: there are no manifest-specific codes. An invalid entry or input is
+`400 BAD_REQUEST` (gRPC INVALID_ARGUMENT) with a message that names every bad
+entry, e.g. `2 invalid entries: entries[0]: invalid path "../x": ...;
+entries[1]: give data_map or address, not both` (at most 20 shown, then `; and K
+more`; REST prefixes `Bad request: `). Every SDK raises its bad-request error (status
+400) for these, including the both-or-neither check it makes before sending and
+an empty decode input (`needs a manifest (base64 .ant bytes) or a link`), with the
+same text. Bad base64, a manifest that does not parse, and an invalid
+link are 400s too.
+
+Per-SDK methods (`build_manifest`, `decode_manifest`, `decode_manifest_link`,
+cased per language) are listed in each SDK's section below. Every SDK has them,
+over gRPC too in C++, C#, Dart, Elixir, Go, Java, Kotlin, Python, Ruby, Rust and
+Swift; JS/TS, Lua, PHP and Zig are REST only. They take and return the raw
+`.ant` bytes: base64 is only the REST wire form. The MCP server has
+`build_manifest` and `decode_manifest` tools (free; no confirmation needed).
+Tutorial: [docs/tutorial-manifests.md](docs/tutorial-manifests.md).
+
+---
 
 ## gRPC API — All Services
 
@@ -593,8 +685,12 @@ Mirrors REST `/v1/pointers` 1:1; counters are decimal strings, unset values are 
 - Errors: `POINTER_FINAL` / `POINTER_FORKED` → FAILED_PRECONDITION, `CONFLICT` → ABORTED, `CLOSE_GROUP_SHORTFALL` → UNAVAILABLE
 
 ### ManifestService (manifests.proto)
-- `Build(BuildManifestRequest{name, torrent_info_hashes, embed_roots, entries[{path, size, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`
-- `Decode(DecodeManifestRequest{manifest: bytes | link, resolve}) → DecodeManifestResponse{source, name, torrent_info_hash_v1, torrent_info_hash_v2, entries}`
+Mirrors REST `/v1/manifests` 1:1; the `.ant` bytes are raw `bytes` here (base64 only on REST), and optional values use proto3 `optional` (check presence, not the zero value). Both calls are unary and free.
+- `Build(BuildManifestRequest{name?, torrent_info_hashes, embed_roots?, entries[{path?, size?, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`: `embed_roots` unset means true; `link` is empty when it would pass 1,500 bytes
+- `Decode(DecodeManifestRequest{manifest: bytes | link, resolve}) → DecodeManifestResponse{source, name?, torrent_info_hash_v1, torrent_info_hash_v2, entries}`
+- `ManifestEntryInfo{effective_name, path?, size?, kind, content_address, data_map, exact_size?, error}`: `data_map` is empty for public entries and on build; `error` is empty unless `resolve` failed for that entry
+- A manifest can be 64 MiB and the server accepts requests up to 100 MiB, so clients raise their receive (and send) limit for these calls: the SDKs set 256 MiB, per call where the gRPC library allows it, otherwise on a second channel for the manifest service. Dart and Elixir set none, because their gRPC libraries have none to raise: grpc-dart enforces no message size limit in either direction and has no setting for one, and grpc-elixir 0.11 reads a unary response whole and caps sends only at its 2 GiB default
+- Errors: invalid entry or input → INVALID_ARGUMENT, with the same `entries[i]` message as REST
 
 ### SDKs with gRPC support
 Go, Python, C#, Kotlin, Swift, Rust, Java, C++, Dart, Ruby, Elixir (11 of 15 SDKs).
@@ -612,6 +708,33 @@ JS/TS, PHP, Lua, and Zig are REST-only.
 | PutResult | cost: string, address: string | Result from any create/put operation |
 | UploadCostEstimate | cost: string, file_size: u64, chunk_count: u32, estimated_gas_cost_wei: string, payment_mode: string | Pre-upload cost breakdown returned by data_cost / file_cost. Server samples up to 5 chunk addresses and extrapolates; gas is an advisory heuristic. |
 
+### Pointers
+
+Wire field names; each SDK cases them idiomatically. Counters are decimal strings on the wire, parsed into an exact unsigned 64-bit value (or kept as a checked string in Lua and PHP). Unset values are `null` over REST and `""` or an absent message over gRPC; SDKs map both to their "none".
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| PointerWriteResult | address, state_id, counter | The state a create or update stored |
+| PointerRecord | address, owner (ML-DSA-65 public key, hex), counter, kind, kind_tag, target, state_id, is_final, transferred_to | A pointer's current state |
+| PointerTarget | kind, kind_tag, target | Where a chain of pointers ends (`PointerResolved` in Rust) |
+| PointerFinality | address, group, answered, status, counter, state, states, majority, transferred_to | The close group's view; `status` is open / settling / unconfirmed / final / forked, plus an unknown case for statuses a newer daemon adds |
+| PointerController | pointer, transfers, frozen | Whose pointer decides, after every transfer |
+| PointerTransferResult | address, state_id, finality, finality_error | What a transfer stored |
+| PointerPrepareResult | upload_id, op, address, state_id, counter, payment_type, payments, total_amount, payment_vault_address, payment_token_address, rpc_url, signed_quotes (optional: present when `include_signed_quotes` was set) | A signed pointer write quoted for an external signer (always `wave_batch`) |
+| PointerFinalizeResult | address, state_id, counter, finality | What a pointer finalize stored (`finality` for a transfer) |
+
+### Manifests
+
+Wire field names; each SDK cases them idiomatically. Sizes are optional unsigned 64-bit values (or the SDK's usual file-size type): unset is the language's none, never `0`.
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| ManifestEntryInput | path?, size?, data_map \| address | One file to build from: exactly one of `data_map` (hex, embedded) or `address` (hex, public); both or neither is refused before sending, as the SDK's bad-request error (status 400) |
+| BuildManifestOptions | name?, torrent_info_hashes, embed_roots (default true) | Go, Java, C++ and Rust spell the last as `KeepShrunkDataMaps` / `keepShrunkDataMaps` / `keep_shrunk_data_maps` (default false) |
+| ManifestEntryInfo | effective_name, path?, size?, kind ("embedded" \| "public"), content_address, data_map, exact_size?, error | What a manifest says about one entry; `data_map` on decode only, `exact_size` and `error` set by `resolve` (or an embedded root) |
+| BuiltManifest | manifest (raw `.ant` bytes), link, entries | `link` is empty or none when it would pass 1,500 bytes; entries are sorted by effective name |
+| DecodedManifest | source ("manifest" \| "file_link"), name?, torrent_info_hash_v1, torrent_info_hash_v2, entries | A decoded manifest or file link |
+
 ---
 
 ## Payment Modes
@@ -624,7 +747,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 | `"merkle"` | Forces merkle batch payments regardless of chunk count (minimum 2 chunks). Saves gas on larger uploads. |
 | `"single"` | Forces per-chunk payments. Useful for small data or debugging. |
 
-This applies to all PUT endpoints (`data_put_public`, `data_put_private`, `file_upload_public`) across all SDKs. The parameter is always optional and defaults to `"auto"`.
+This applies to every store method (`data_put`, `data_put_public`, `file_put`, `file_put_public`, in each language's casing) across all SDKs. The parameter is always optional and defaults to `"auto"`.
 
 **REST:** Include `"payment_mode": "merkle"` in the JSON request body.
 
@@ -675,9 +798,26 @@ client.fileGetPublic(address: string, destPath: string): Promise<void>
 client.fileCost(path: string, isPublic?: boolean, opts?: { paymentMode?: PaymentMode }): Promise<UploadCostEstimate>
 
 // Wallet
+// Manifests (REST; free: nothing is uploaded or paid for; sizes are number, unset values null; bytes are Buffer)
+client.buildManifest(entries: ManifestEntryInput[], opts?: { name?: string; torrentInfoHashes?: string[]; embedRoots?: boolean }): Promise<BuiltManifest>
+client.decodeManifest(manifest: Buffer | Uint8Array, resolve?: boolean): Promise<DecodedManifest>
+client.decodeManifestLink(link: string, resolve?: boolean): Promise<DecodedManifest>
+
 client.walletAddress(): Promise<WalletAddress>
 client.walletBalance(): Promise<WalletBalance>
 client.walletApprove(): Promise<boolean>
+
+// Pointers (REST; counters are bigint, unset values null; every write pays and is never retried)
+client.pointerKeys(): Promise<string[]>
+client.pointerCreate(owner: string, target: string, kind?: PointerKind): Promise<PointerWriteResult>
+client.pointerUpdate(owner: string, target: string, kind?: PointerKind): Promise<PointerWriteResult>
+client.pointerTransfer(owner: string, recipient: string): Promise<PointerTransferResult>  // irreversible
+client.pointerGet(address: string): Promise<PointerRecord>
+client.pointerResolve(address: string): Promise<PointerTarget>
+client.pointerFinality(address: string): Promise<PointerFinality>
+client.pointerController(address: string): Promise<PointerController>
+client.pointerPrepare(owner: string, op: PointerOp, options?: { includeSignedQuotes?: boolean }): Promise<PointerPrepareResult>
+client.pointerFinalize(uploadId: string, txHashes: Record<string, string>): Promise<PointerFinalizeResult>
 ```
 
 ---
@@ -712,9 +852,26 @@ client.file_get_public(address: str, dest_path: str) → None
 client.file_cost(path: str, is_public: bool = True, payment_mode: PaymentMode = PaymentMode.AUTO) → UploadCostEstimate
 
 # Wallet
+# Manifests (REST + gRPC, sync and async; free; sizes are int, unset is None; bytes are bytes)
+client.build_manifest(entries: list[ManifestEntryInput], *, name=None, torrent_info_hashes=None, embed_roots=True) → BuiltManifest
+client.decode_manifest(manifest: bytes, resolve: bool = False) → DecodedManifest
+client.decode_manifest_link(link: str, resolve: bool = False) → DecodedManifest
+
 client.wallet_address() → WalletAddress
 client.wallet_balance() → WalletBalance
 client.wallet_approve() → bool
+
+# Pointers (REST + gRPC; counters are int; every write pays and is never retried)
+client.pointer_keys() → list[str]
+client.pointer_create(owner: str, target: str, kind: PointerKind = PointerKind.CHUNK) → PointerWriteResult
+client.pointer_update(owner: str, target: str, kind: PointerKind = PointerKind.CHUNK) → PointerWriteResult
+client.pointer_transfer(owner: str, recipient: str) → PointerTransferResult  # irreversible
+client.pointer_get(address: str) → PointerRecord
+client.pointer_resolve(address: str) → PointerTarget
+client.pointer_finality(address: str) → PointerFinality
+client.pointer_controller(address: str) → PointerController
+client.pointer_prepare(owner: str, op: PointerOp, *, target=None, kind=None, recipient=None, include_signed_quotes=False) → PointerPrepareResult
+client.pointer_finalize(upload_id: str, tx_hashes: dict[str, str]) → PointerFinalizeResult
 ```
 
 ---
@@ -749,9 +906,26 @@ Task FileGetPublicAsync(string address, string destPath);
 Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true, PaymentMode paymentMode = PaymentMode.Auto);
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are ulong?, unset is null; bytes are byte[])
+Task<BuiltManifest> BuildManifestAsync(IReadOnlyList<ManifestEntryInput> entries, BuildManifestOptions? options = null);  // ManifestEntryInput.Embedded(...) / .Public(...)
+Task<DecodedManifest> DecodeManifestAsync(byte[] manifest, bool resolve = false);
+Task<DecodedManifest> DecodeManifestLinkAsync(string link, bool resolve = false);
+
 Task<WalletAddress> WalletAddressAsync();
 Task<WalletBalance> WalletBalanceAsync();
 Task<bool> WalletApproveAsync();
+
+// Pointers (REST + gRPC; counters are ulong; every write pays and is never retried)
+Task<List<string>> PointerKeysAsync();
+Task<PointerWriteResult> PointerCreateAsync(string owner, string target, PointerKind kind = PointerKind.Chunk);
+Task<PointerWriteResult> PointerUpdateAsync(string owner, string target, PointerKind kind = PointerKind.Chunk);
+Task<PointerTransferResult> PointerTransferAsync(string owner, string recipient);  // irreversible
+Task<PointerRecord> PointerGetAsync(string address);
+Task<PointerTarget> PointerResolveAsync(string address);
+Task<PointerFinality> PointerFinalityAsync(string address);
+Task<PointerController> PointerControllerAsync(string address);
+Task<PointerPrepareResult> PointerPrepareAsync(PointerPrepareRequest request);  // PointerPrepareRequest.Create / .Update / .Transfer
+Task<PointerFinalizeResult> PointerFinalizeAsync(string uploadId, IDictionary<string, string> txHashes);
 ```
 
 ---
@@ -786,9 +960,26 @@ suspend fun fileGetPublic(address: String, destPath: String)
 suspend fun fileCost(path: String, isPublic: Boolean = true, paymentMode: PaymentMode = PaymentMode.Auto): UploadCostEstimate
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are ULong?, unset is null; bytes are ByteArray)
+suspend fun buildManifest(entries: List<ManifestEntryInput>, options: BuildManifestOptions = BuildManifestOptions()): BuiltManifest
+suspend fun decodeManifest(manifest: ByteArray, resolve: Boolean = false): DecodedManifest
+suspend fun decodeManifestLink(link: String, resolve: Boolean = false): DecodedManifest
+
 suspend fun walletAddress(): WalletAddress
 suspend fun walletBalance(): WalletBalance
 suspend fun walletApprove(): Boolean
+
+// Pointers (REST + gRPC; counters are ULong; every write pays and is never retried)
+suspend fun pointerKeys(): List<String>
+suspend fun pointerCreate(owner: String, target: String, kind: PointerKind = PointerKind.CHUNK): PointerWriteResult
+suspend fun pointerUpdate(owner: String, target: String, kind: PointerKind = PointerKind.CHUNK): PointerWriteResult
+suspend fun pointerTransfer(owner: String, recipient: String): PointerTransferResult  // irreversible
+suspend fun pointerGet(address: String): PointerRecord
+suspend fun pointerResolve(address: String): PointerTarget
+suspend fun pointerFinality(address: String): PointerFinality
+suspend fun pointerController(address: String): PointerController
+suspend fun pointerPrepare(owner: String, op: PointerOp, includeSignedQuotes: Boolean = false): PointerPrepareResult  // PointerOp.Create / Update / Transfer
+suspend fun pointerFinalize(uploadId: String, txHashes: Map<String, String>): PointerFinalizeResult
 ```
 
 ---
@@ -825,9 +1016,26 @@ func fileGetPublic(address: String, destPath: String) async throws
 func fileCost(path: String, isPublic: Bool, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are UInt64?, unset is nil; bytes are Data)
+func buildManifest(entries: [ManifestEntryInput], options: BuildManifestOptions) async throws -> BuiltManifest  // also buildManifest(entries:)
+func decodeManifest(_ manifest: Data, resolve: Bool) async throws -> DecodedManifest
+func decodeManifestLink(_ link: String, resolve: Bool) async throws -> DecodedManifest
+
 func walletAddress() async throws -> WalletAddress
 func walletBalance() async throws -> WalletBalance
 func walletApprove() async throws -> Bool
+
+// Pointers (REST + gRPC; counters are UInt64; every write pays and is never retried)
+func pointerKeys() async throws -> [PointerKey]
+func pointerCreate(owner: String, target: String, kind: PointerKind) async throws -> PointerWriteResult
+func pointerUpdate(owner: String, target: String, kind: PointerKind) async throws -> PointerWriteResult
+func pointerTransfer(owner: String, recipient: String) async throws -> PointerTransferResult  // irreversible
+func pointerGet(address: String) async throws -> PointerRecord
+func pointerResolve(address: String) async throws -> PointerTarget
+func pointerFinality(address: String) async throws -> PointerFinality
+func pointerController(address: String) async throws -> PointerController
+func pointerPrepare(owner: String, op: PointerOp) async throws -> PointerPrepareResult  // also (owner:op:options:)
+func pointerFinalize(uploadId: String, txHashes: [String: String]) async throws -> PointerFinalizeResult
 ```
 
 ---
@@ -872,7 +1080,20 @@ func (c *Client) WalletAddress(ctx context.Context) (*WalletAddress, error)
 func (c *Client) WalletBalance(ctx context.Context) (*WalletBalance, error)
 func (c *Client) WalletApprove(ctx context.Context) error
 
-// Manifests (ADR-0006, antd 0.16.0+); same methods on GrpcClient
+// Pointers (REST + gRPC; counters are uint64; every write pays and is never retried)
+func (c *Client) PointerKeys(ctx context.Context) ([]string, error)
+func (c *Client) PointerCreate(ctx context.Context, owner, target string, kind PointerTargetKind) (*PointerWrite, error)
+func (c *Client) PointerUpdate(ctx context.Context, owner, target string, kind PointerTargetKind) (*PointerWrite, error)
+func (c *Client) PointerTransfer(ctx context.Context, owner, recipient string) (*PointerTransferResult, error)  // irreversible
+func (c *Client) PointerGet(ctx context.Context, address string) (*PointerRecord, error)
+func (c *Client) PointerResolve(ctx context.Context, address string) (*PointerTarget, error)
+func (c *Client) PointerFinality(ctx context.Context, address string) (*PointerFinality, error)
+func (c *Client) PointerController(ctx context.Context, address string) (*PointerController, error)
+func (c *Client) PointerPrepare(ctx context.Context, req PointerPrepareRequest) (*PointerPrepareResult, error)
+func (c *Client) PointerFinalize(ctx context.Context, uploadID string, txHashes map[string]string) (*PointerFinalizeResult, error)
+
+// Manifests (ADR-0006, antd 0.16.0 or later; free; sizes are *uint64, unset is nil; bytes are []byte); same methods on GrpcClient
+// BuildManifestOptions{Name, TorrentInfoHashes, KeepShrunkDataMaps}; ManifestEntryInput{Path, Size, DataMap, Address}
 func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error)
 func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error)
 func (c *Client) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error)
@@ -912,9 +1133,26 @@ void fileGetPublic(String address, String destPath) throws AntdException
 UploadCostEstimate fileCost(String path, boolean isPublic, PaymentMode paymentMode) throws AntdException
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are Long, unset is null; bytes are byte[])
+BuiltManifest buildManifest(List<ManifestEntryInput> entries[, BuildManifestOptions options]) throws AntdException  // ManifestEntryInput.ofDataMap(...) / .ofAddress(...); options keepShrunkDataMaps
+DecodedManifest decodeManifest(byte[] manifest, boolean resolve) throws AntdException
+DecodedManifest decodeManifestLink(String link, boolean resolve) throws AntdException
+
 WalletAddress walletAddress() throws AntdException
 WalletBalance walletBalance() throws AntdException
 boolean walletApprove() throws AntdException
+
+// Pointers (REST + gRPC; counters are BigInteger; every write pays and is never retried)
+List<String> pointerKeys() throws AntdException
+PointerWriteResult pointerCreate(String owner, String target[, PointerTargetKind kind]) throws AntdException
+PointerWriteResult pointerUpdate(String owner, String target[, PointerTargetKind kind]) throws AntdException
+PointerTransferResult pointerTransfer(String owner, String recipient) throws AntdException  // irreversible
+PointerRecord pointerGet(String address) throws AntdException
+PointerTarget pointerResolve(String address) throws AntdException
+PointerFinality pointerFinality(String address) throws AntdException
+PointerController pointerController(String address) throws AntdException
+PointerPrepareResult pointerPrepare(String owner, PointerOp op[, PointerPrepareOptions options]) throws AntdException
+PointerFinalizeResult pointerFinalize(String uploadId, Map<String, String> txHashes) throws AntdException
 
 // AntdClient implements AutoCloseable — use try-with-resources
 ```
@@ -951,11 +1189,29 @@ async fn file_get_public(&self, address: &str, dest_path: &str) -> Result<(), An
 async fn file_cost(&self, path: &str, is_public: bool, payment_mode: PaymentMode) -> Result<UploadCostEstimate, AntdError>
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are Option<u64>, unset is None; bytes are Vec<u8>)
+async fn build_manifest(&self, entries: &[ManifestEntryInput]) -> Result<BuiltManifest, AntdError>  // also build_manifest_with_options(entries, &BuildManifestOptions { keep_shrunk_data_maps, .. })
+async fn decode_manifest(&self, manifest: &[u8], resolve: bool) -> Result<DecodedManifest, AntdError>
+async fn decode_manifest_link(&self, link: &str, resolve: bool) -> Result<DecodedManifest, AntdError>
+
 async fn wallet_address(&self) -> Result<WalletAddress, AntdError>
 async fn wallet_balance(&self) -> Result<WalletBalance, AntdError>
 async fn wallet_approve(&self) -> Result<bool, AntdError>
 
-// AntdError variants: BadRequest, Payment, NotFound, AlreadyExists, Fork, TooLarge, Internal, Network
+// Pointers (REST + gRPC; counters are u64; every write pays and is never retried)
+async fn pointer_keys(&self) -> Result<Vec<PointerKey>, AntdError>
+async fn pointer_create(&self, owner: &str, target: &str, kind: PointerKind) -> Result<PointerWriteResult, AntdError>
+async fn pointer_update(&self, owner: &str, target: &str, kind: PointerKind) -> Result<PointerWriteResult, AntdError>
+async fn pointer_transfer(&self, owner: &str, recipient: &str) -> Result<PointerTransferResult, AntdError>  // irreversible
+async fn pointer_get(&self, address: &str) -> Result<PointerRecord, AntdError>
+async fn pointer_resolve(&self, address: &str) -> Result<PointerResolved, AntdError>
+async fn pointer_finality(&self, address: &str) -> Result<PointerFinality, AntdError>
+async fn pointer_controller(&self, address: &str) -> Result<PointerController, AntdError>
+async fn pointer_prepare(&self, owner: &str, op: &PointerOp) -> Result<PointerPrepareResult, AntdError>  // also pointer_prepare_with_options
+async fn pointer_finalize(&self, upload_id: &str, tx_hashes: &HashMap<String, String>) -> Result<PointerFinalizeResult, AntdError>
+
+// AntdError variants: BadRequest, Payment, NotFound, AlreadyExists, Fork, TooLarge, Internal, Network,
+// plus PointerFinal, PointerForked, Conflict and CloseGroupShortfall { retryable, .. } for pointers
 ```
 
 ---
@@ -972,31 +1228,49 @@ antd::Client client("http://remote:8082");
 // Health
 antd::HealthStatus health()                               // throws antd::AntdError
 
-// Data
-antd::DataPutPublicResult dataPutPublic(const std::vector<uint8_t>& data, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
-std::vector<uint8_t> dataGetPublic(const std::string& address)
-antd::DataPutResult dataPut(const std::vector<uint8_t>& data, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
-std::vector<uint8_t> dataGet(const std::string& dataMap)
-UploadCostEstimate dataCost(const std::vector<uint8_t>& data, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
+// Data (snake_case throughout)
+antd::DataPutPublicResult data_put_public(const std::vector<uint8_t>& data, antd::PaymentMode payment_mode = antd::PaymentMode::Auto)
+std::vector<uint8_t> data_get_public(std::string_view address)
+antd::DataPutResult data_put(const std::vector<uint8_t>& data, antd::PaymentMode payment_mode = antd::PaymentMode::Auto)
+std::vector<uint8_t> data_get(std::string_view data_map)
+UploadCostEstimate data_cost(const std::vector<uint8_t>& data, antd::PaymentMode payment_mode = antd::PaymentMode::Auto)
 
 // Chunks
-antd::PutResult chunkPut(const std::vector<uint8_t>& data)
-std::vector<uint8_t> chunkGet(const std::string& address)
+antd::PutResult chunk_put(const std::vector<uint8_t>& data)
+std::vector<uint8_t> chunk_get(std::string_view address)
 
 // Files
-antd::FilePutResult filePut(const std::string& path, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
-void fileGet(const std::string& dataMap, const std::string& destPath)
-antd::FilePutPublicResult filePutPublic(const std::string& path, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
-void fileGetPublic(const std::string& address, const std::string& destPath)
-UploadCostEstimate fileCost(const std::string& path, bool isPublic = true, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
+antd::FilePutResult file_put(std::string_view path, antd::PaymentMode payment_mode = antd::PaymentMode::Auto)
+void file_get(std::string_view data_map, std::string_view dest_path)
+antd::FilePutPublicResult file_put_public(std::string_view path, antd::PaymentMode payment_mode = antd::PaymentMode::Auto)
+void file_get_public(std::string_view address, std::string_view dest_path)
+UploadCostEstimate file_cost(std::string_view path, bool is_public, antd::PaymentMode payment_mode = antd::PaymentMode::Auto)
+
+// Manifests (REST + gRPC, sync and async; free; sizes are std::optional<std::uint64_t>; bytes are std::vector<uint8_t>)
+antd::BuiltManifest build_manifest(const std::vector<antd::ManifestEntryInput>& entries, const antd::BuildManifestOptions& options = {})  // options.keep_shrunk_data_maps
+antd::DecodedManifest decode_manifest(const std::vector<uint8_t>& manifest, bool resolve = false)
+antd::DecodedManifest decode_manifest_link(std::string_view link, bool resolve = false)
 
 // Wallet
-antd::WalletAddress walletAddress()
-antd::WalletBalance walletBalance()
-bool walletApprove()
+antd::WalletAddress wallet_address()
+antd::WalletBalance wallet_balance()
+bool wallet_approve()
+
+// Pointers (REST + gRPC; snake_case; counters are std::uint64_t; every write pays and is never retried)
+std::vector<antd::PointerKey> pointer_keys()
+antd::PointerWriteResult pointer_create(std::string_view owner, std::string_view target, antd::PointerKind kind = antd::PointerKind::Chunk)
+antd::PointerWriteResult pointer_update(std::string_view owner, std::string_view target, antd::PointerKind kind = antd::PointerKind::Chunk)
+antd::PointerTransferResult pointer_transfer(std::string_view owner, std::string_view recipient)  // irreversible
+antd::PointerRecord pointer_get(std::string_view address)
+antd::PointerTarget pointer_resolve(std::string_view address)
+antd::PointerFinality pointer_finality(std::string_view address)
+antd::PointerController pointer_controller(std::string_view address)
+antd::PointerPrepareResult pointer_prepare(const antd::PointerPrepareRequest& req)
+antd::PointerFinalizeResult pointer_finalize(std::string_view upload_id, const std::map<std::string, std::string>& tx_hashes)
 
 // All methods throw antd::AntdError or subclasses: BadRequestError, PaymentError, NotFoundError,
-// AlreadyExistsError, ForkError, TooLargeError, InternalError, NetworkError
+// AlreadyExistsError, ForkError, TooLargeError, InternalError, NetworkError, and for pointers
+// PointerFinalError, PointerForkedError, ConflictError, CloseGroupShortfallError
 ```
 
 ---
@@ -1031,9 +1305,26 @@ client.file_get_public(address, dest_path) → nil
 client.file_cost(path, is_public: true, payment_mode: :auto) → UploadCostEstimate
 
 # Wallet
+# Manifests (REST + gRPC; free; sizes are Integer, unset is nil; bytes are String)
+client.build_manifest(entries, name: nil, torrent_info_hashes: nil, embed_roots: true) → BuiltManifest  # entries: ManifestEntryInput or Hash
+client.decode_manifest(manifest, resolve: false) → DecodedManifest
+client.decode_manifest_link(link, resolve: false) → DecodedManifest
+
 client.wallet_address → WalletAddress
 client.wallet_balance → WalletBalance
 client.wallet_approve → Boolean
+
+# Pointers (REST + gRPC; counters are Integer; every write pays and is never retried)
+client.pointer_keys → Array<String>
+client.pointer_create(owner, target, kind: nil) → PointerWriteResult
+client.pointer_update(owner, target, kind: nil) → PointerWriteResult
+client.pointer_transfer(owner, recipient) → PointerTransferResult  # irreversible
+client.pointer_get(address) → PointerRecord
+client.pointer_resolve(address) → PointerTarget
+client.pointer_finality(address) → PointerFinality
+client.pointer_controller(address) → PointerController
+client.pointer_prepare(owner, op, target: nil, kind: nil, recipient: nil, include_signed_quotes: false) → PointerPrepareResult
+client.pointer_finalize(upload_id, tx_hashes) → PointerFinalizeResult
 ```
 
 ---
@@ -1068,9 +1359,26 @@ $client->fileGetPublic(string $address, string $destPath): void
 $client->fileCost(string $path, bool $isPublic = true, string $paymentMode = 'auto'): UploadCostEstimate
 
 // Wallet
+// Manifests (REST; free; sizes are ?int, unset is null; bytes are string; each has an Async variant)
+$client->buildManifest(array $entries, ?BuildManifestOptions $options = null): BuiltManifest  // entries: ManifestEntryInput
+$client->decodeManifest(string $manifest, bool $resolve = false): DecodedManifest
+$client->decodeManifestLink(string $link, bool $resolve = false): DecodedManifest
+
 $client->walletAddress(): array{address: string}
 $client->walletBalance(): array{balance: string, gas_balance: string}
 $client->walletApprove(): bool
+
+// Pointers (REST; counters are validated decimal strings; every write pays and is never retried; each has an Async variant)
+$client->pointerKeys(): array
+$client->pointerCreate(string $owner, string $target, ?PointerTargetKind $kind = null): PointerWriteResult
+$client->pointerUpdate(string $owner, string $target, ?PointerTargetKind $kind = null): PointerWriteResult
+$client->pointerTransfer(string $owner, string $recipient): PointerTransferResult  // irreversible
+$client->pointerGet(string $address): PointerRecord
+$client->pointerResolve(string $address): PointerTarget
+$client->pointerFinality(string $address): PointerFinality
+$client->pointerController(string $address): PointerController
+$client->pointerPrepare(PointerPrepareRequest $request): PointerPrepareResult  // PointerPrepareRequest::create() / ::update() / ::transfer()
+$client->pointerFinalize(string $uploadId, array $txHashes): PointerFinalizeResult
 ```
 
 ---
@@ -1105,9 +1413,26 @@ Future<void> fileGetPublic(String address, String destPath)
 Future<UploadCostEstimate> fileCost(String path, {bool isPublic = true, PaymentMode paymentMode = PaymentMode.auto})
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are int?, unset is null; bytes are Uint8List)
+Future<BuiltManifest> buildManifest(List<ManifestEntryInput> entries, {String? name, List<String>? torrentInfoHashes, bool embedRoots = true})
+Future<DecodedManifest> decodeManifest(Uint8List manifest, {bool resolve = false})
+Future<DecodedManifest> decodeManifestLink(String link, {bool resolve = false})
+
 Future<WalletAddress> walletAddress()
 Future<WalletBalance> walletBalance()
 Future<bool> walletApprove()
+
+// Pointers (REST + gRPC; counters are BigInt; every write pays and is never retried)
+Future<List<String>> pointerKeys()
+Future<PointerWriteResult> pointerCreate(String owner, String target, {PointerKind kind = PointerKind.chunk})
+Future<PointerWriteResult> pointerUpdate(String owner, String target, {PointerKind kind = PointerKind.chunk})
+Future<PointerTransferResult> pointerTransfer(String owner, String recipient)  // irreversible
+Future<PointerRecord> pointerGet(String address)
+Future<PointerTarget> pointerResolve(String address)
+Future<PointerFinality> pointerFinality(String address)
+Future<PointerController> pointerController(String address)
+Future<PointerPrepareResult> pointerPrepare(PointerPrepareRequest request)  // PointerPrepareRequest.create / .update / .transfer
+Future<PointerFinalizeResult> pointerFinalize(String uploadId, Map<String, String> txHashes)
 ```
 
 ---
@@ -1142,9 +1467,26 @@ client:file_get_public(address, dest_path) → nil
 client:file_cost(path, is_public, payment_mode) → UploadCostEstimate (table)
 
 -- Wallet
+-- Manifests (REST; free; sizes are numbers, unset is nil; bytes are Lua strings; entries are {path, size, data_map | address})
+client:build_manifest(entries, opts) → {manifest, link, entries} | nil, err  -- opts: {name, torrent_info_hashes, embed_roots}
+client:decode_manifest(bytes, resolve) → {source, name, torrent_info_hash_v1, torrent_info_hash_v2, entries} | nil, err
+client:decode_manifest_link(link, resolve) → same
+
 client:wallet_address() → {address=string}
 client:wallet_balance() → {balance=string, gas_balance=string}
 client:wallet_approve() → boolean
+
+-- Pointers (REST; counters are checked decimal strings; every write pays and is never retried)
+client:pointer_keys() → {string, ...}
+client:pointer_create(owner, target, kind) → {address, state_id, counter}
+client:pointer_update(owner, target, kind) → {address, state_id, counter}
+client:pointer_transfer(owner, recipient) → {address, state_id, finality, finality_error}  -- irreversible
+client:pointer_get(address) → PointerRecord (table)
+client:pointer_resolve(address) → {kind, kind_tag, target}
+client:pointer_finality(address) → PointerFinality (table)
+client:pointer_controller(address) → {pointer, transfers, frozen}
+client:pointer_prepare(owner, op, opts) → PointerPrepareResult (table)  -- op from antd.pointer_create_op / pointer_update_op / pointer_transfer_op
+client:pointer_finalize(upload_id, tx_hashes) → {address, state_id, counter, finality}
 ```
 
 ---
@@ -1177,9 +1519,26 @@ Antd.Client.file_get_public(client, address, dest_path) :: :ok | {:error, term()
 Antd.Client.file_cost(client, path, is_public \\ true, opts \\ []) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, term()}
 
 # Wallet
+# Manifests (REST + gRPC via Antd.GrpcClient; free; sizes are integers, unset is nil; bytes are binaries; each has a ! variant)
+Antd.Client.build_manifest(client, entries, opts \\ []) :: {:ok, Antd.BuiltManifest.t()} | {:error, term()}  # entries: [%Antd.ManifestEntryInput{}]; opts: name:, torrent_info_hashes:, embed_roots:
+Antd.Client.decode_manifest(client, manifest, opts \\ []) :: {:ok, Antd.DecodedManifest.t()} | {:error, term()}  # opts: resolve:
+Antd.Client.decode_manifest_link(client, link, opts \\ []) :: {:ok, Antd.DecodedManifest.t()} | {:error, term()}
+
 Antd.Client.wallet_address(client) :: {:ok, WalletAddress.t()} | {:error, term()}
 Antd.Client.wallet_balance(client) :: {:ok, WalletBalance.t()} | {:error, term()}
 Antd.Client.wallet_approve(client) :: {:ok, boolean()} | {:error, term()}
+
+# Pointers (REST + gRPC via Antd.GrpcClient; counters are integers; every write pays and is never retried; each has a ! variant)
+Antd.Client.pointer_keys(client) :: {:ok, [String.t()]} | {:error, term()}
+Antd.Client.pointer_create(client, owner, target, opts \\ []) :: {:ok, Antd.PointerWriteResult.t()} | {:error, term()}  # opts: [kind: :chunk | :pointer]
+Antd.Client.pointer_update(client, owner, target, opts \\ []) :: {:ok, Antd.PointerWriteResult.t()} | {:error, term()}
+Antd.Client.pointer_transfer(client, owner, recipient) :: {:ok, Antd.PointerTransferResult.t()} | {:error, term()}  # irreversible
+Antd.Client.pointer_get(client, address) :: {:ok, Antd.PointerRecord.t()} | {:error, term()}
+Antd.Client.pointer_resolve(client, address) :: {:ok, Antd.PointerTarget.t()} | {:error, term()}
+Antd.Client.pointer_finality(client, address) :: {:ok, Antd.PointerFinality.t()} | {:error, term()}
+Antd.Client.pointer_controller(client, address) :: {:ok, Antd.PointerController.t()} | {:error, term()}
+Antd.Client.pointer_prepare(client, owner, op, opts \\ []) :: {:ok, Antd.PointerPrepareResult.t()} | {:error, term()}  # op: {:create, target} | {:update, target} | {:transfer, recipient}
+Antd.Client.pointer_finalize(client, upload_id, tx_hashes) :: {:ok, Antd.PointerFinalizeResult.t()} | {:error, term()}
 ```
 
 ---
@@ -1215,9 +1574,26 @@ fn fileGetPublic(self: *Client, address: []const u8, dest_path: []const u8) !voi
 fn fileCost(self: *Client, path: []const u8, is_public: bool, payment_mode: PaymentMode) !UploadCostEstimate
 
 // Wallet
+// Manifests (REST; free; sizes are ?u64, unset is null; bytes are []const u8; results have deinit(allocator))
+fn buildManifest(self: *Client, entries: []const ManifestEntryInput, options: BuildManifestOptions) !BuiltManifest  // options: .{ .name, .torrent_info_hashes, .embed_roots }
+fn decodeManifest(self: *Client, manifest: []const u8, resolve: bool) !DecodedManifest
+fn decodeManifestLink(self: *Client, link: []const u8, resolve: bool) !DecodedManifest
+
 fn walletAddress(self: *Client) !WalletAddress
 fn walletBalance(self: *Client) !WalletBalance
 fn walletApprove(self: *Client) !bool
+
+// Pointers (REST; counters are u64; every write pays and is never retried; results have deinit(allocator))
+fn pointerKeys(self: *Client) !PointerKeys
+fn pointerCreate(self: *Client, owner: []const u8, target: []const u8, kind: PointerKind) !PointerWriteResult
+fn pointerUpdate(self: *Client, owner: []const u8, target: []const u8, kind: PointerKind) !PointerWriteResult
+fn pointerTransfer(self: *Client, owner: []const u8, recipient: []const u8) !PointerTransferResult  // irreversible
+fn pointerGet(self: *Client, address: []const u8) !PointerRecord
+fn pointerResolve(self: *Client, address: []const u8) !PointerTarget
+fn pointerFinality(self: *Client, address: []const u8) !PointerFinality
+fn pointerController(self: *Client, address: []const u8) !PointerController
+fn pointerPrepare(self: *Client, owner: []const u8, op: PointerOp) !PointerPrepareResult  // also pointerPrepareWithOptions
+fn pointerFinalize(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) !PointerFinalizeResult
 ```
 
 ---
@@ -1249,6 +1625,8 @@ client.finalize_chunk_upload(upload_id: str, tx_hashes: dict[str, str]) → str 
 
 All 15 SDKs expose these methods (REST-only SDKs included — they call the same endpoints).
 
+Pointer writes have their own pair, also in all 15 SDKs: `pointer_prepare(owner, op, ...)` (`POST /v1/pointers/prepare`) has antd sign a create, update or transfer with the owner key it holds and quote it, always as a `wave_batch` payment for `payForQuotes()`; `pointer_finalize(upload_id, tx_hashes)` (`POST /v1/pointers/finalize`) stores it once paid. While a prepared write awaits payment (up to an hour), other writes to that pointer answer `409 CONFLICT`. A finalize that falls short after payment answers `503 CLOSE_GROUP_SHORTFALL` with `retryable: true`: repeat it with the same `upload_id` to store against the same payment.
+
 ---
 
 ## MCP Tool → SDK Method Mapping
@@ -1268,6 +1646,21 @@ Every tool with a `private` flag (`store_data`, `retrieve_data`, `upload_file`, 
 | `wallet_address` | `wallet_address` | Get wallet public address |
 | `wallet_balance` | `wallet_balance` | Get wallet balances |
 | `wallet_approve` | `wallet_approve` | Approve wallet for payments |
+| `pointer_keys` | `pointer_keys` | Pointer addresses this daemon holds owner keys for. Free |
+| `pointer_get(address, include_owner_key?)` | `pointer_get` | Read a pointer; the owner's public key only with `include_owner_key=True`. Free |
+| `pointer_resolve(address)` | `pointer_resolve` | Follow forwardings and transfers to the target. Free |
+| `pointer_finality(address)` | `pointer_finality` | The close group's view: open / settling / unconfirmed / final / forked. Free |
+| `pointer_controller(address)` | `pointer_controller` | Follow transfers to the pointer whose owner now decides. Free |
+| `pointer_create(owner, target, kind?)` | `pointer_create` | Create a pointer. Pays from the daemon wallet |
+| `pointer_update(owner, target, kind?)` | `pointer_update` | Point a pointer at a new target. Pays from the daemon wallet |
+| `pointer_transfer(owner, recipient, confirm_irreversible?)` | `pointer_transfer` | Hand a pointer over for good. Pays; irreversible, so it refuses to run (`CONFIRMATION_REQUIRED`, nothing sent or paid) without `confirm_irreversible=true` |
+| `pointer_prepare(owner, op, target?, kind?, recipient?)` | `pointer_prepare` | External signer: sign and quote a pointer write. Pays nothing itself |
+| `pointer_finalize(upload_id, tx_hashes)` | `pointer_finalize` | External signer: store a prepared write after `payForQuotes()` |
+
+No pointer tool retries a paid write; counters come back as decimal strings.
+
+| `build_manifest(entries, name?, torrent_info_hashes?, embed_roots?)` | `build_manifest` | Build a manifest from DataMaps and public addresses; returns `manifest_base64`, `link` (null past 1,500 bytes) and entries. Free |
+| `decode_manifest(manifest_base64? \| link?, resolve?)` | `decode_manifest` | Decode a manifest, manifest link, file link or address; `resolve=true` fills `exact_size`. Free |
 
 ---
 
@@ -1284,6 +1677,12 @@ Every tool with a `private` flag (`store_data`, `retrieve_data`, `upload_file`, 
 | 500 | INTERNAL | `InternalError` | `InternalError` | `InternalException` | `InternalException` | `InternalError` | `InternalException` | `AntdError::Internal` | `InternalError` | Internal server error |
 | 502 | UNAVAILABLE | `NetworkError` | `NetworkError` | `NetworkException` | `NetworkException` | `NetworkError` | `NetworkException` | `AntdError::Network` | `NetworkError` | Cannot reach network |
 | 503 | UNAVAILABLE | `ServiceUnavailableError` | `ServiceUnavailableError` | `ServiceUnavailableException` | `ServiceUnavailableException` | `ServiceUnavailableError` | `ServiceUnavailableException` | `AntdError::ServiceUnavailable` | `ServiceUnavailableError` | Wallet not configured |
+| 409 `POINTER_FINAL` | FAILED_PRECONDITION + tag | `PointerFinalError` | `PointerFinalError` | `PointerFinalException` | `PointerFinalException` | `PointerFinalError` | `PointerFinalException` | `AntdError::PointerFinal` | `PointerFinalError` | Pointer transferred or final; usually refused before paying, but a write already paid for when the network refused it keeps that payment |
+| 409 `POINTER_FORKED` | FAILED_PRECONDITION + tag | `ForkError` | `PointerForkedError` | `PointerForkedException` | `PointerForkedException` | `PointerForkedError` | `ForkException` | `AntdError::PointerForked` | `PointerForkedError` | Owner signed two final states, no majority holds either |
+| 409 `CONFLICT` | ABORTED + tag | `ConflictError` | `ConflictError` | `ConflictException` | `ConflictException` | `ConflictError` | `ConflictException` | `AntdError::Conflict` | `ConflictError` | A prepared pointer write awaits payment (refused before paying), or an update lost to a newer state (possibly after paying) |
+| 503 `CLOSE_GROUP_SHORTFALL` | UNAVAILABLE + tag | `CloseGroupShortfallError` | `CloseGroupShortfallError` | `CloseGroupShortfallException` | `CloseGroupShortfallException` | `CloseGroupShortfallError` | `CloseGroupShortfallException` | `AntdError::CloseGroupShortfall` | `CloseGroupShortfallError` | Too few of the close group answered or stored; `retryable` only for a finalize that kept the paid state |
+
+The four pointer-era rows share a status with older errors: SDKs map them by the REST body's `code`, and over gRPC by the `x-antd-error-code` trailer ("tag"), trusted only when it agrees with the status code. A daemon with pointers also sends `CLOSE_GROUP_SHORTFALL` from non-pointer calls (a chunk store, say) where older daemons sent a 500.
 
 All exceptions inherit from `AntdError` (JS/TS, Python, Swift, Ruby, Lua, Zig, C++) / `AntdException` (C#, Kotlin, Java, PHP, Dart, Elixir uses `{:error, reason}` tuples). Rust uses `Result<T, AntdError>` with `match` on enum variants.
 
@@ -1517,10 +1916,35 @@ from antd import AntdClient
 client = AntdClient()
 
 # Store private (encrypted) data
-result = client.data_put_private(b"secret message")
-print(f"Data map: {result.address}")
+result = client.data_put(b"secret message")
+print(f"Data map: {result.data_map}")
 
 # Retrieve with data map
-data = client.data_get_private(result.address)
+data = client.data_get(result.data_map)
 print(f"Decrypted: {data.decode()}")
 ```
+
+### Pointer: Create, Update, Resolve (Python)
+
+```python
+from antd import AlreadyExistsError, AntdClient
+
+client = AntdClient()
+owner = client.pointer_keys()[0]   # antd started with --pointer-keys
+
+v1 = client.data_put_public(b"version 1").address
+v2 = client.data_put_public(b"version 2").address
+
+try:
+    client.pointer_create(owner, v1)          # pays; counter 0
+except AlreadyExistsError:
+    pass                                      # refused before paying: it exists, so update it
+w = client.pointer_update(owner, v2)          # pays; never retried automatically
+print(f"Pointer {w.address} at counter {w.counter}")
+
+target = client.pointer_resolve(owner).target  # == v2 (free)
+print(client.data_get_public(target).decode()) # "version 2"
+print(client.pointer_finality(owner).status.value)  # "open"
+```
+
+Runnable in every SDK: `ANTD_POINTER_OWNER=<address> ant dev example pointers -l <language>` (`ANTD_BASE_URL` overrides the daemon URL in all but Go and Rust).

@@ -1531,3 +1531,27 @@ func TestJSONCountFloatGuard(t *testing.T) {
 		}
 	}
 }
+
+func TestResponseNumbersDecodeExactly(t *testing.T) {
+	m, err := decodeObject([]byte(`{"big": 18446744073709551615, "past53": 9007199254740993, "neg": -9007199254740993}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := unum64(m, "big"); got != math.MaxUint64 {
+		t.Errorf("unum64(big) = %d, want MaxUint64", got)
+	}
+	if got := unum64(m, "past53"); got != 9007199254740993 {
+		t.Errorf("unum64(past53) = %d, want 9007199254740993", got)
+	}
+	if got := num64(m, "neg"); got != -9007199254740993 {
+		t.Errorf("num64(neg) = %d, want -9007199254740993", got)
+	}
+	// Maps built from float64 values still read.
+	f := map[string]any{"n": float64(42)}
+	if unum64(f, "n") != 42 || num64(f, "n") != 42 {
+		t.Errorf("float64 values must still read: %d %d", unum64(f, "n"), num64(f, "n"))
+	}
+	if _, err := decodeObject([]byte(`{"a": 1} {"b": 2}`)); err == nil {
+		t.Error("trailing data after the object must be an error, as with json.Unmarshal")
+	}
+}

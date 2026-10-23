@@ -2,9 +2,10 @@ package antd
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"google.golang.org/grpc"
 
@@ -104,13 +105,44 @@ type DecodedManifest struct {
 // manifest can be 64 MiB, and a decode response carries its DataMaps in hex.
 const maxManifestGrpcMessage = 256 * 1024 * 1024
 
+// badManifestRequest is a client-side rejection, before anything is sent. It
+// is the same *BadRequestError (status 400) the daemon's own 400 and gRPC
+// INVALID_ARGUMENT map to.
+func badManifestRequest(format string, args ...any) error {
+	return &BadRequestError{AntdError{StatusCode: http.StatusBadRequest, Message: fmt.Sprintf(format, args...)}}
+}
+
+// maxReportedEntryErrors is how many bad entries the daemon names in one 400.
+const maxReportedEntryErrors = 20
+
+// noDecodeInput is the daemon's 400 message for an empty decode request.
+const noDecodeInput = "needs a manifest (base64 .ant bytes) or a link"
+
+// checkManifestEntries refuses entries without exactly one of DataMap or
+// Address, in the daemon's own words: every bad entry (at most 20 shown) in
+// one *BadRequestError, indistinguishable from the daemon's 400.
 func checkManifestEntries(entries []ManifestEntryInput) error {
+	var bad []string
 	for i, e := range entries {
-		if (e.DataMap == "") == (e.Address == "") {
-			return fmt.Errorf("antd: manifest entry %d: set exactly one of DataMap or Address", i)
+		switch {
+		case e.DataMap != "" && e.Address != "":
+			bad = append(bad, fmt.Sprintf("entries[%d]: give data_map or address, not both", i))
+		case e.DataMap == "" && e.Address == "":
+			bad = append(bad, fmt.Sprintf("entries[%d]: needs a data_map or an address", i))
 		}
 	}
-	return nil
+	if len(bad) == 0 {
+		return nil
+	}
+	shown := bad
+	if len(shown) > maxReportedEntryErrors {
+		shown = shown[:maxReportedEntryErrors]
+	}
+	msg := fmt.Sprintf("%d invalid entries: %s", len(bad), strings.Join(shown, "; "))
+	if len(bad) > maxReportedEntryErrors {
+		msg += fmt.Sprintf("; and %d more", len(bad)-maxReportedEntryErrors)
+	}
+	return badManifestRequest("%s", msg)
 }
 
 // --- REST ---
@@ -118,7 +150,7 @@ func checkManifestEntries(entries []ManifestEntryInput) error {
 // BuildManifest builds a `.ant` manifest from DataMaps and public addresses
 // already in hand, via POST /v1/manifests/build. opts may be nil.
 //
-// Requires antd >= 0.16.0.
+// Requires antd 0.16.0 or later.
 func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error) {
 	if err := checkManifestEntries(entries); err != nil {
 		return nil, err
@@ -175,10 +207,10 @@ func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput
 // report ExactSize and confirm the DataMap is on the network; content chunks
 // are not fetched, and one entry's failure is reported in its Error.
 //
-// Requires antd >= 0.16.0.
+// Requires antd 0.16.0 or later.
 func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error) {
 	if len(manifest) == 0 {
-		return nil, errors.New("antd: DecodeManifest: manifest is empty")
+		return nil, badManifestRequest(noDecodeInput)
 	}
 	return c.decodeManifest(ctx, map[string]any{"manifest": b64Encode(manifest), "resolve": resolve})
 }
@@ -187,10 +219,10 @@ func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bo
 // 64-hex address via POST /v1/manifests/decode. See DecodeManifest for
 // resolve.
 //
-// Requires antd >= 0.16.0.
+// Requires antd 0.16.0 or later.
 func (c *Client) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error) {
 	if link == "" {
-		return nil, errors.New("antd: DecodeManifestLink: link is empty")
+		return nil, badManifestRequest(noDecodeInput)
 	}
 	return c.decodeManifest(ctx, map[string]any{"link": link, "resolve": resolve})
 }
@@ -210,11 +242,12 @@ func (c *Client) decodeManifest(ctx context.Context, body map[string]any) (*Deco
 }
 
 func optUint64(m map[string]any, key string) *uint64 {
-	if _, ok := m[key].(float64); !ok {
-		return nil
+	switch m[key].(type) {
+	case json.Number, float64:
+		v := unum64(m, key)
+		return &v
 	}
-	v := unum64(m, key)
-	return &v
+	return nil
 }
 
 func parseManifestEntries(raw []any) []ManifestEntryInfo {
@@ -243,7 +276,7 @@ func parseManifestEntries(raw []any) []ManifestEntryInfo {
 
 // BuildManifest is the gRPC twin of Client.BuildManifest. opts may be nil.
 //
-// Requires antd >= 0.16.0.
+// Requires antd 0.16.0 or later.
 func (c *GrpcClient) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error) {
 	if err := checkManifestEntries(entries); err != nil {
 		return nil, err
@@ -293,10 +326,10 @@ func (c *GrpcClient) BuildManifest(ctx context.Context, entries []ManifestEntryI
 
 // DecodeManifest is the gRPC twin of Client.DecodeManifest.
 //
-// Requires antd >= 0.16.0.
+// Requires antd 0.16.0 or later.
 func (c *GrpcClient) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error) {
 	if len(manifest) == 0 {
-		return nil, errors.New("antd: DecodeManifest: manifest is empty")
+		return nil, badManifestRequest(noDecodeInput)
 	}
 	return c.decodeManifest(ctx, &pb.DecodeManifestRequest{
 		Input:   &pb.DecodeManifestRequest_Manifest{Manifest: manifest},
@@ -306,10 +339,10 @@ func (c *GrpcClient) DecodeManifest(ctx context.Context, manifest []byte, resolv
 
 // DecodeManifestLink is the gRPC twin of Client.DecodeManifestLink.
 //
-// Requires antd >= 0.16.0.
+// Requires antd 0.16.0 or later.
 func (c *GrpcClient) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error) {
 	if link == "" {
-		return nil, errors.New("antd: DecodeManifestLink: link is empty")
+		return nil, badManifestRequest(noDecodeInput)
 	}
 	return c.decodeManifest(ctx, &pb.DecodeManifestRequest{
 		Input:   &pb.DecodeManifestRequest_Link{Link: link},

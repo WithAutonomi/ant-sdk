@@ -9,11 +9,25 @@ import sys
 from contextlib import asynccontextmanager
 
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import ToolAnnotations
 
 from antd import AsyncAntdClient, PaymentMode
 from antd.exceptions import AntdError
 from .discover import discover_daemon_url
 from .errors import format_error, format_unexpected_error
+
+# The pointer tools need an antd SDK with the pointer API (0.3.0 or later).
+# Against an older SDK the server still starts and serves every other tool;
+# the pointer tools are simply not registered (see ``_pointer_tool``).
+try:
+    from antd import PointerKind, PointerOp
+    from antd._rest import AsyncRestClient as _AsyncRestClient
+except ImportError:  # antd SDK without the pointer API
+    PointerKind = None  # type: ignore[assignment,misc]
+    PointerOp = None  # type: ignore[assignment,misc]
+    POINTERS_AVAILABLE = False
+else:
+    POINTERS_AVAILABLE = hasattr(_AsyncRestClient, "pointer_get")
 
 # ---------------------------------------------------------------------------
 # Lifespan — create/close a single AsyncRestClient for the server's lifetime
@@ -910,6 +924,618 @@ async def finalize_chunk_upload(
     try:
         address = await client.finalize_chunk_upload(upload_id, tx_hashes)
         return _ok({"address": address}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# Manifest tools (own module; registered only if the antd SDK has the API).
+from . import manifests as _manifests  # noqa: E402
+
+_manifests.register(mcp)
+
+
+# ---------------------------------------------------------------------------
+# Pointers
+# ---------------------------------------------------------------------------
+#
+# A pointer is a small, owner-signed, mutable reference. Its address never
+# changes; its target (a chunk, such as a public data or file address, or
+# another pointer) can be moved by its owner. antd holds the owner keys
+# (``antd --pointer-keys``), so a write names the pointer by its address.
+#
+# The writes pay from the daemon wallet with the same posture as the upload
+# tools: no confirmation step, no cost pre-check, and no retry. A transfer is
+# irreversible, so pointer_transfer additionally refuses to run unless the
+# caller passes ``confirm_irreversible=true``.
+#
+# Counters leave as decimal strings, never JSON numbers: a final pointer sits
+# at 2**64-1, which clients that read JSON numbers as doubles (and LLMs)
+# round.
+
+
+def _pointer_tool(**kwargs):
+    """``mcp.tool(**kwargs)`` when the antd SDK has the pointer API.
+
+    Against an older SDK the function stays defined but unregistered, so the
+    server lists only the tools it can serve.
+    """
+
+    def register(fn):
+        return mcp.tool(**kwargs)(fn) if POINTERS_AVAILABLE else fn
+
+    return register
+
+
+def _pk(kind: str):
+    """Coerce a wire-format pointer kind string to the PointerKind enum.
+
+    Raises ValueError if the string is not "chunk" or "pointer" (reported as
+    an error before anything is sent), like ``_pm`` for payment modes.
+    """
+    return PointerKind(kind)
+
+
+def _counter(value: int | None) -> str | None:
+    """A pointer counter as a decimal string; unset stays ``None``."""
+    return None if value is None else str(value)
+
+
+def _pointer_write_to_dict(result) -> dict:
+    """Convert a PointerWriteResult to a JSON-safe dict."""
+    return {
+        "address": result.address,
+        "state_id": result.state_id,
+        "counter": _counter(result.counter),
+    }
+
+
+def _final_state_to_dict(state) -> dict | None:
+    """Convert a PointerFinalState (or None) to a JSON-safe dict."""
+    if state is None:
+        return None
+    return {
+        "state_id": state.state_id,
+        "kind": state.kind,
+        "kind_tag": state.kind_tag,
+        "target": state.target,
+        "holders": state.holders,
+        "transferred_to": state.transferred_to,
+    }
+
+
+def _finality_to_dict(finality) -> dict | None:
+    """Convert a PointerFinality (or None) to a JSON-safe dict."""
+    if finality is None:
+        return None
+    return {
+        "address": finality.address,
+        "status": finality.status.value,
+        "raw_status": finality.raw_status,
+        "is_final": finality.is_final,
+        "group": finality.group,
+        "answered": finality.answered,
+        "counter": _counter(finality.counter),
+        "state": _final_state_to_dict(finality.state),
+        "states": [_final_state_to_dict(s) for s in finality.states],
+        "majority": _final_state_to_dict(finality.majority),
+        "transferred_to": finality.transferred_to,
+    }
+
+
+def _pointer_prepare_result_to_dict(result) -> dict:
+    """Convert a PointerPrepareResult to a JSON-safe dict."""
+    return {
+        "upload_id": result.upload_id,
+        "op": result.op,
+        "address": result.address,
+        "state_id": result.state_id,
+        "counter": _counter(result.counter),
+        "payment_type": result.payment_type or "wave_batch",
+        "total_amount": result.total_amount,
+        "payment_vault_address": result.payment_vault_address,
+        "payment_token_address": result.payment_token_address,
+        "rpc_url": result.rpc_url,
+        "payments": [
+            {
+                "quote_hash": p.quote_hash,
+                "rewards_address": p.rewards_address,
+                "amount": p.amount,
+            }
+            for p in result.payments
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_keys
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool()
+async def pointer_keys(ctx: Context) -> str:
+    """List the pointers this antd daemon can write. Free.
+
+    antd signs pointer writes with owner keys it loaded at startup
+    (``antd --pointer-keys``). Every pointer write names the pointer by its
+    address (``owner``), and only the addresses listed here can be written
+    through this daemon.
+
+    Returns:
+        JSON with ``keys``: the writable pointer addresses (64-char hex), or
+        error details.
+    """
+    client, network = _get_ctx(ctx)
+    try:
+        keys = await client.pointer_keys()
+        return _ok({"keys": keys}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_get
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool()
+async def pointer_get(
+    ctx: Context,
+    address: str,
+    include_owner_key: bool = False,
+) -> str:
+    """Read a pointer's current state from the Autonomi network. Free.
+
+    A pointer is a small, owner-signed, mutable reference: its address never
+    changes, and its owner can move its target (a chunk, such as a public
+    data or file address, or another pointer).
+
+    Counters are decimal strings, not JSON numbers: a final pointer's counter
+    is "18446744073709551615" (2^64-1), which JSON number parsing rounds.
+    Compare counters as strings of digits or as big integers.
+
+    Args:
+        address: The pointer's address (64-char hex, ``0x`` optional).
+        include_owner_key: If True, also return ``owner``, the owner's
+            ML-DSA-65 public key (about 3,900 hex characters). Default: left
+            out.
+
+    Returns:
+        JSON with ``address``, ``counter`` (decimal string), ``target``,
+        ``kind`` ("chunk", "pointer", or "unknown" for a kind the daemon does
+        not know), ``kind_tag``, ``state_id``, ``is_final`` (true once
+        transferred or frozen: nothing can change it again) and
+        ``transferred_to`` (the pointer it was handed over to, or null), or
+        error details (``NOT_FOUND`` when no pointer exists there).
+    """
+    client, network = _get_ctx(ctx)
+    try:
+        record = await client.pointer_get(address)
+        d = {
+            "address": record.address,
+            "counter": _counter(record.counter),
+            "target": record.target,
+            "kind": record.kind,
+            "kind_tag": record.kind_tag,
+            "state_id": record.state_id,
+            "is_final": record.is_final,
+            "transferred_to": record.transferred_to,
+        }
+        if include_owner_key:
+            d["owner"] = record.owner
+        return _ok(d, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_resolve
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool()
+async def pointer_resolve(
+    ctx: Context,
+    address: str,
+) -> str:
+    """Follow a chain of pointers to the target at its end. Free.
+
+    Follows forwardings (pointers that point at pointers) and transfers
+    alike. When ``kind`` is "chunk", ``target`` is an address that
+    ``retrieve_data`` / ``download_file`` can fetch, if it was stored as
+    public data or a public file.
+
+    Args:
+        address: The pointer's address (64-char hex, ``0x`` optional).
+
+    Returns:
+        JSON with ``target`` (hex), ``kind`` and ``kind_tag``, or error
+        details (``NOT_FOUND`` when a pointer on the chain does not exist).
+    """
+    client, network = _get_ctx(ctx)
+    try:
+        target = await client.pointer_resolve(address)
+        return _ok(
+            {"target": target.target, "kind": target.kind, "kind_tag": target.kind_tag},
+            network,
+        )
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_finality
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool()
+async def pointer_finality(
+    ctx: Context,
+    address: str,
+) -> str:
+    """Ask a pointer's whole close group where it stands. Free.
+
+    Check this before relying on a transfer: only ``status`` "final"
+    (``is_final`` true) means one final state, held by a majority, with every
+    peer answering and no rival seen.
+
+    ``status`` is one of:
+    - "open": no peer holds a final state; the owner can still move it.
+    - "settling": one final state, not yet held by a majority.
+    - "unconfirmed": one final state held by a majority, but not every peer
+      answered. Ask again.
+    - "final": beyond dispute.
+    - "forked": the owner signed two or more different final states.
+    - "unknown": a status this server does not know; ``raw_status`` has the
+      daemon's string.
+
+    Args:
+        address: The pointer's address (64-char hex, ``0x`` optional).
+
+    Returns:
+        JSON with ``status``, ``raw_status``, ``is_final``, ``group`` (peers
+        in the close group), ``answered``, ``counter`` (decimal string, "open"
+        only; null otherwise), ``state`` (the one final state seen: settling,
+        unconfirmed, final), ``states`` and ``majority`` (forked), and
+        ``transferred_to`` (set once a transfer is final), or error details.
+    """
+    client, network = _get_ctx(ctx)
+    try:
+        finality = await client.pointer_finality(address)
+        return _ok(_finality_to_dict(finality), network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_controller
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool()
+async def pointer_controller(
+    ctx: Context,
+    address: str,
+) -> str:
+    """Find whose pointer now decides what an address resolves to. Free.
+
+    Follows every transfer from ``address`` to the pointer at the end of the
+    hand-overs; that pointer's owner is the one who can move the target.
+
+    Args:
+        address: The pointer's address (64-char hex, ``0x`` optional).
+
+    Returns:
+        JSON with ``pointer`` (the deciding pointer's address), ``transfers``
+        (every pointer handed over to, in order) and ``frozen`` (true when
+        ``pointer`` is final without having been handed over: nobody can move
+        it), or error details.
+    """
+    client, network = _get_ctx(ctx)
+    try:
+        controller = await client.pointer_controller(address)
+        return _ok(
+            {
+                "pointer": controller.pointer,
+                "transfers": list(controller.transfers),
+                "frozen": controller.frozen,
+            },
+            network,
+        )
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_create
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool()
+async def pointer_create(
+    ctx: Context,
+    owner: str,
+    target: str,
+    kind: str = "chunk",
+) -> str:
+    """Create a pointer on the Autonomi network, pointing at ``target``.
+
+    Pays from the daemon wallet, about the price of one chunk. Every call
+    pays again and this tool never retries: do not repeat a failed call
+    without checking the pointer first (``pointer_get``).
+
+    Args:
+        owner: The pointer's address (64-char hex). The daemon must hold its
+            key (see ``pointer_keys``).
+        target: The address to point at (hex), e.g. the ``address`` from a
+            public ``store_data`` or ``upload_file``.
+        kind: "chunk" (default) for an immutable chunk such as a public data
+            or file address, or "pointer" to forward to another pointer.
+
+    Returns:
+        JSON with ``address``, ``state_id`` and ``counter`` (decimal string),
+        or error details. ``ALREADY_EXISTS``: the pointer exists (refused
+        before paying); use ``pointer_update``. ``CONFLICT``: a prepared
+        write to it awaits payment.
+    """
+    client, network = _get_ctx(ctx)
+    try:
+        result = await client.pointer_create(owner, target, _pk(kind))
+        return _ok(_pointer_write_to_dict(result), network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_update
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool()
+async def pointer_update(
+    ctx: Context,
+    owner: str,
+    target: str,
+    kind: str = "chunk",
+) -> str:
+    """Point an existing pointer at a new target (creates it if missing).
+
+    Pays from the daemon wallet, about the price of one chunk. Every call
+    pays again and this tool never retries: do not repeat a failed call
+    without checking the pointer first (``pointer_get``).
+
+    Args:
+        owner: The pointer's address (64-char hex). The daemon must hold its
+            key (see ``pointer_keys``).
+        target: The new address to point at (hex).
+        kind: "chunk" (default) for an immutable chunk such as a public data
+            or file address, or "pointer" to forward to another pointer (a
+            forwarding the owner can still change).
+
+    Returns:
+        JSON with ``address``, ``state_id`` and ``counter`` (decimal string,
+        one higher than before), or error details. ``POINTER_FINAL``: the
+        pointer was transferred or frozen and can never change (usually
+        refused before paying). ``CONFLICT``: a prepared write to it awaits
+        payment (refused before paying), or the update lost to a newer state
+        (possibly after paying); the ``hint`` says which.
+    """
+    client, network = _get_ctx(ctx)
+    try:
+        result = await client.pointer_update(owner, target, _pk(kind))
+        return _ok(_pointer_write_to_dict(result), network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_transfer
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool(
+    annotations=ToolAnnotations(
+        title="Transfer a pointer (irreversible)",
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=True,
+    ),
+)
+async def pointer_transfer(
+    ctx: Context,
+    owner: str,
+    recipient: str,
+    confirm_irreversible: bool = False,
+) -> str:
+    """IRREVERSIBLE: hand the pointer at ``owner`` over to ``recipient`` forever.
+
+    A transfer makes the pointer at ``owner`` final for good. Nobody can ever
+    update or transfer it again, including its owner. Readers of ``owner``'s
+    address are sent on to the pointer at ``recipient``, which only the
+    recipient's owner can move. There is no undo.
+
+    Pays from the daemon wallet, about the price of one chunk. Every call
+    pays again and this tool never retries.
+
+    Only call this after the user has explicitly confirmed this exact
+    transfer, both addresses included. Unless ``confirm_irreversible`` is
+    true the tool sends and pays nothing, and returns
+    ``CONFIRMATION_REQUIRED``.
+
+    Args:
+        owner: The address of the pointer to hand over. The daemon must hold
+            its key (see ``pointer_keys``).
+        recipient: The address of the pointer to hand it to. It must exist
+            and must not lead back to ``owner``.
+        confirm_irreversible: Must be true to proceed. Set it only once the
+            user has confirmed the transfer.
+
+    Returns:
+        JSON with ``address``, ``state_id`` and ``finality`` (the close
+        group's view, shaped as ``pointer_finality`` returns it). When that
+        check failed, ``finality`` is null and ``finality_error`` says why;
+        the transfer is stored and final either way, so ask again with
+        ``pointer_finality`` and do not call this again. Errors:
+        ``POINTER_FINAL`` (already final; usually refused before paying),
+        ``BAD_REQUEST``
+        (``recipient`` missing or leads back).
+    """
+    client, network = _get_ctx(ctx)
+    if confirm_irreversible is not True:
+        return _ok(
+            {
+                "error": "CONFIRMATION_REQUIRED",
+                "message": (
+                    f"pointer_transfer would hand the pointer {owner} over to "
+                    f"{recipient} forever: it becomes final, can never be "
+                    "updated or transferred again, and its readers are sent "
+                    "to the recipient's pointer. It also pays from the daemon "
+                    "wallet. Nothing was sent or paid. Confirm with the user, "
+                    "then call again with confirm_irreversible=true."
+                ),
+            },
+            network,
+        )
+    try:
+        result = await client.pointer_transfer(owner, recipient)
+        return _ok(
+            {
+                "address": result.address,
+                "state_id": result.state_id,
+                "finality": _finality_to_dict(result.finality),
+                "finality_error": result.finality_error,
+            },
+            network,
+        )
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_prepare
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool()
+async def pointer_prepare(
+    ctx: Context,
+    owner: str,
+    op: str,
+    target: str | None = None,
+    kind: str | None = None,
+    recipient: str | None = None,
+) -> str:
+    """Prepare a pointer write for external signing (two-phase, like
+    ``prepare_upload``).
+
+    The daemon signs the write with the owner key it holds and quotes it. It
+    pays nothing itself and needs no daemon wallet. Pay ``payments`` with
+    ``payForQuotes()``, then call ``pointer_finalize`` with the tx hashes.
+    Until the write is finalized or expires (one hour), other writes to the
+    pointer fail with ``CONFLICT``.
+
+    Args:
+        owner: The pointer's address (64-char hex). The daemon must hold its
+            key (see ``pointer_keys``).
+        op: "create" or "update" (pass ``target``, and optionally ``kind``),
+            or "transfer" (pass ``recipient``). A finalized transfer is
+            IRREVERSIBLE: the pointer becomes final forever and its readers
+            are sent on to ``recipient``'s pointer.
+        target: For create / update: the address to point at (hex).
+        kind: For create / update: "chunk" (the daemon's default) or
+            "pointer".
+        recipient: For transfer: the address of the pointer to hand it to.
+
+    Returns:
+        JSON with ``upload_id``, ``op``, ``address``, ``state_id``,
+        ``counter`` (decimal string), ``payment_type`` ("wave_batch"),
+        ``total_amount``, ``payments`` (``quote_hash``, ``rewards_address``,
+        ``amount``), ``payment_vault_address``, ``payment_token_address`` and
+        ``rpc_url``, or error details. The checks a daemon-wallet write makes
+        before paying are made here, so ``ALREADY_EXISTS``,
+        ``POINTER_FINAL`` and ``BAD_REQUEST`` arrive before any quote.
+    """
+    client, network = _get_ctx(ctx)
+    try:
+        result = await client.pointer_prepare(
+            owner,
+            PointerOp(op),
+            target=target,
+            kind=None if kind is None else _pk(kind),
+            recipient=recipient,
+        )
+        return _ok(_pointer_prepare_result_to_dict(result), network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: pointer_finalize
+# ---------------------------------------------------------------------------
+
+
+@_pointer_tool()
+async def pointer_finalize(
+    ctx: Context,
+    upload_id: str,
+    tx_hashes: dict[str, str],
+) -> str:
+    """Store a prepared pointer write after the external signer has paid.
+
+    A finalized transfer is irreversible. This tool never retries.
+
+    Args:
+        upload_id: The upload ID returned by ``pointer_prepare``.
+        tx_hashes: Map of quote_hash to tx_hash for each payment.
+
+    Returns:
+        JSON with ``address``, ``state_id``, ``counter`` (decimal string) and
+        ``finality`` (for a transfer, shaped as ``pointer_finality`` returns
+        it; null otherwise), or error details.
+
+    Errors:
+        ``CLOSE_GROUP_SHORTFALL`` with ``retryable`` true: retry the
+        finalize, the payment was kept. Call this same tool again with the
+        same ``upload_id`` (``tx_hashes`` is ignored on a repeat) to store
+        the paid state against the same payment, with no second payment.
+        Stop after a few attempts; the kept attempt expires after one hour.
+        With ``retryable`` false nothing was kept.
+        ``BAD_REQUEST``: the hashes do not match the payment. The session is
+        kept, so correct them and call again.
+        ``NOT_FOUND``: the ``upload_id`` expired or was already finalized.
+    """
+    client, network = _get_ctx(ctx)
+    try:
+        result = await client.pointer_finalize(upload_id, tx_hashes)
+        return _ok(
+            {
+                "address": result.address,
+                "state_id": result.state_id,
+                "counter": _counter(result.counter),
+                "finality": _finality_to_dict(result.finality),
+            },
+            network,
+        )
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:

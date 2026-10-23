@@ -63,11 +63,11 @@ Encrypted data -- only accessible with the data map.
 
 ```ruby
 # Store (self-encrypting)
-result = client.data_put_private("secret message")
-data_map = result.address  # Keep this secret!
+result = client.data_put("secret message")
+data_map = result.data_map  # Keep this secret!
 
 # Retrieve (decrypt)
-data = client.data_get_private(data_map)
+data = client.data_get(data_map)
 puts data
 ```
 
@@ -75,16 +75,40 @@ puts data
 
 ```ruby
 # Upload a file
-result = client.file_upload_public("/path/to/file.txt")
+result = client.file_put_public("/path/to/file.txt")
 puts "File address: #{result.address}"
 
 # Download a file
-client.file_download_public(result.address, "/path/to/output.txt")
+client.file_get_public(result.address, "/path/to/output.txt")
 
 # Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 est = client.file_cost("/path/to/file.txt")
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs antd 0.16.0 or later (the first release with pointers). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```ruby
+owner = client.pointer_keys.first                  # a pointer antd can write
+
+v1 = client.data_put_public("version 1").address
+v2 = client.data_put_public("version 2").address
+
+client.pointer_create(owner, v1)                   # pays; counter 0
+client.pointer_update(owner, v2)                   # pays again; counter 1
+target = client.pointer_resolve(owner).target      # == v2 (free)
+
+puts client.pointer_finality(owner).status         # "open"
+```
+
+Counters are `Integer`s. `pointer_transfer`, `pointer_get`, `pointer_controller`, `pointer_prepare` and `pointer_finalize` complete the set, on `Antd::GrpcClient` too.
+
+Runnable example: `antd-ruby/examples/08_pointers.rb`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+ANTD_POINTER_OWNER=<address> ruby antd-ruby/examples/08_pointers.rb
+```
 
 ## Error Handling
 
@@ -116,6 +140,33 @@ Exception hierarchy:
 | `Antd::TooLargeError` | 413 | Payload too large |
 | `Antd::InternalError` | 500 | Server error |
 | `Antd::NetworkError` | 502 | Network unreachable |
+
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs antd 0.16.0 or later. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```ruby
+a = client.data_put_public("one").address        # pays
+b = client.data_put_public("two").address        # pays
+
+built = client.build_manifest(                   # free
+  [{ path: "notes/one.txt", address: a }, { path: "notes/two.txt", address: b }],
+  name: "example"
+)
+puts built.link                                  # nil when over 1,500 bytes: share built.manifest instead
+
+client.decode_manifest_link(built.link, resolve: true).entries.each do |e|   # free
+  puts "#{e.effective_name}: #{e.exact_size} bytes"
+end
+```
+
+`decode_manifest(bytes, resolve: true)` takes raw `.ant` bytes. Entries may also be `Antd::ManifestEntryInput`s; use `data_map:` instead of `address:` for an embedded entry, and `embed_roots: false` to keep shrunk DataMaps as given. On `Antd::GrpcClient` too.
+
+Runnable example: `antd-ruby/examples/09_manifests.rb`. Its two uploads pay; the manifest calls do not.
+
+```bash
+ANTD_BASE_URL=http://localhost:8082 ruby antd-ruby/examples/09_manifests.rb
+```
 
 ## Examples
 
