@@ -68,6 +68,8 @@ public sealed partial class AntdGrpcClient
             if (e.Size is { } size) input.Size = size;
             if (!string.IsNullOrEmpty(e.DataMap)) input.DataMap = e.DataMap;
             else input.Address = e.Address!;
+            // Set only when given, so presence is meaningful; passed through as given.
+            if (!string.IsNullOrEmpty(e.Sha256)) input.Sha256 = e.Sha256;
             req.Entries.Add(input);
         }
 
@@ -118,5 +120,6 @@ public sealed partial class AntdGrpcClient
             e.ContentAddress,
             ManifestWire.NullIfEmpty(e.DataMap),
             e.HasExactSize ? e.ExactSize : null,
-            ManifestWire.NullIfEmpty(e.Error));
+            ManifestWire.NullIfEmpty(e.Error),
+            ManifestWire.NullIfEmpty(e.Sha256));
 }

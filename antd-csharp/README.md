@@ -149,14 +149,17 @@ The members were added to `IAntdClient` with default implementations that throw 
 
 All models are sealed records (immutable).
 
+On each upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult`, `FinalizeUploadResult`, `FinalizeMerkleUploadResult`), `Sha256` (`string?`) is the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none (`null`) on older daemons.
+
 | Model | Fields | Description |
 |-------|--------|-------------|
 | `HealthStatus` | `Ok`, `Network`, `Version`, `EvmNetwork`, `UptimeSeconds`, `BuildCommit`, `PaymentTokenAddress`, `PaymentVaultAddress` | Health check result (diagnostic fields require antd ≥ 0.4.0) |
 | `PutResult` | `Cost`, `Address` | Result of `ChunkPutAsync` only |
-| `DataPutResult` | `DataMap`, `ChunksStored`, `PaymentModeUsed` | Private data put — DataMap returned to caller |
-| `DataPutPublicResult` | `Address`, `ChunksStored`, `PaymentModeUsed` | Public data put — DataMap stored on-network |
-| `FilePutResult` | `DataMap`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed` | Private file put — DataMap returned to caller |
-| `FilePutPublicResult` | `Address`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed` | Public file put — DataMap stored on-network |
+| `DataPutResult` | `DataMap`, `ChunksStored`, `PaymentModeUsed`, `Sha256` | Private data put — DataMap returned to caller |
+| `DataPutPublicResult` | `Address`, `ChunksStored`, `PaymentModeUsed`, `Sha256` | Public data put — DataMap stored on-network |
+| `FilePutResult` | `DataMap`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed`, `Sha256` | Private file put — DataMap returned to caller |
+| `FilePutPublicResult` | `Address`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed`, `Sha256` | Public file put — DataMap stored on-network |
+| `FinalizeUploadResult`, `FinalizeMerkleUploadResult` | `Address`, `ChunksStored`, `DataMap`, `DataMapAddress`, `Sha256` | What an external-signer finalize stored (wave-batch and merkle) |
 | `UploadCostEstimate` | `Cost`, `FileSize`, `ChunkCount`, `EstimatedGasCostWei`, `PaymentMode` | Pre-upload cost breakdown |
 | `PointerWriteResult` | `Address`, `StateId`, `Counter` | The state a create or update stored |
 | `PointerRecord` | `Address`, `Owner`, `Counter`, `Kind`, `KindTag`, `Target`, `StateId`, `IsFinal`, `TransferredTo`, `TargetKind` | A pointer's current state; `TransferredTo` is `null` unless its final state is a transfer |
@@ -275,11 +278,11 @@ Both clients implement every method below, over REST and gRPC alike. The `.ant` 
 
 | Model | Fields | Description |
 |-------|--------|-------------|
-| `ManifestEntryInput` | `Path`, `Size`, `DataMap`, `Address` | One file to build from. `Size` is recorded as given (the creator's claim); `null` records none |
+| `ManifestEntryInput` | `Path`, `Size`, `DataMap`, `Address`, `Sha256` | One file to build from. `Size` is recorded as given (the creator's claim); `null` records none. `Sha256` (optional, hex) is the plaintext's SHA-256 to record, passed to the daemon as given and left out when `null` or empty (set it with `entry with { Sha256 = "..." }`); requires antd 0.17.0 or later |
 | `BuildManifestOptions` | `Name`, `TorrentInfoHashes`, `EmbedRoots` | `EmbedRoots` defaults to `true`: the daemon resolves each shrunk DataMap and embeds its root when it is at most 64 KiB, so recipients skip that fetch. `false` embeds DataMaps exactly as given. `null` options mean all defaults |
 | `BuiltManifest` | `Manifest`, `Link`, `Entries` | `Link` is `null` when the link would pass the recommended 1,500 bytes; share `Manifest` instead. Entries are sorted by effective name |
 | `DecodedManifest` | `Source`, `Name`, `TorrentInfoHashV1`, `TorrentInfoHashV2`, `Entries` | `Source` is `"manifest"` or `"file_link"`; absent values are `null` |
-| `ManifestEntryInfo` | `EffectiveName`, `Path`, `Size`, `Kind`, `ContentAddress`, `DataMap`, `ExactSize`, `Error` | `Kind` is `"embedded"` or `"public"`. `ExactSize` comes from an embedded root DataMap or a resolving decode. `DataMap` is set by a decode, for embedded entries only |
+| `ManifestEntryInfo` | `EffectiveName`, `Path`, `Size`, `Kind`, `ContentAddress`, `DataMap`, `ExactSize`, `Error`, `Sha256` | `Kind` is `"embedded"` or `"public"`. `ExactSize` comes from an embedded root DataMap or a resolving decode. `DataMap` is set by a decode, for embedded entries only. `Sha256` is the plaintext's SHA-256 (hex) the manifest records, `null` when none; requires antd 0.17.0 or later |
 
 ```csharp
 using var client = AntdClient.CreateRest();
@@ -299,7 +302,7 @@ foreach (var e in decoded.Entries)
     Console.WriteLine($"{e.EffectiveName}: {e.ExactSize} bytes");
 ```
 
-A client-side refusal is indistinguishable from the daemon's: an entry with both or neither source, or an empty manifest or link, throws the same `BadRequestException` (status 400) with the daemon's text (`2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address`, at most 20 entries spelled out; `needs a manifest (base64 .ant bytes) or a link`). The daemon refuses a bad entry (a path that breaks the portable rules, such as `../x`, or a malformed DataMap or address) or a bad torrent hash with HTTP 400 / gRPC `INVALID_ARGUMENT`. That surfaces as `BadRequestException`, whose message names each bad entry as `entries[i]`. Bytes or a link that are not a manifest are a `BadRequestException` too. There are no new exception types.
+A client-side refusal is indistinguishable from the daemon's: an entry with both or neither source, or an empty manifest or link, throws the same `BadRequestException` (status 400) with the daemon's text (`2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address`, at most 20 entries spelled out; `needs a manifest (base64 .ant bytes) or a link`). The daemon refuses a bad entry (a path that breaks the portable rules, such as `../x`, or a malformed DataMap, address or `Sha256`) or a bad torrent hash with HTTP 400 / gRPC `INVALID_ARGUMENT`. That surfaces as `BadRequestException`, whose message names each bad entry as `entries[i]`. Bytes or a link that are not a manifest are a `BadRequestException` too. There are no new exception types.
 
 Over gRPC, a manifest response can pass Grpc.Net.Client's default 4 MiB receive limit, since a manifest can be 64 MiB. Grpc.Net.Client sets message limits per channel, not per call, so `AntdGrpcClient` sends manifest calls over a second channel to the same target with both limits raised to 256 MiB; the other services keep the defaults. That channel connects on the first manifest call.
 
