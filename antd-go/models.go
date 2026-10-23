@@ -24,7 +24,7 @@ type PutResult struct {
 // them empty (proto PutDataResponse only carries data_map).
 type DataPutResult struct {
 	DataMap         string `json:"data_map"`          // hex
-	Sha256          string `json:"sha256"`            // hex SHA-256 of the uploaded plaintext (antd >= 0.16.0)
+	Sha256          string `json:"sha256"`            // hex SHA-256 of the uploaded plaintext (antd >= 0.17.0)
 	ChunksStored    uint64 `json:"chunks_stored"`     // number of chunks stored on the network
 	PaymentModeUsed string `json:"payment_mode_used"` // "auto", "merkle", or "single"
 }
@@ -35,7 +35,7 @@ type DataPutResult struct {
 // by REST; the gRPC transport currently leaves them empty.
 type DataPutPublicResult struct {
 	Address         string `json:"address"`           // hex
-	Sha256          string `json:"sha256"`            // hex SHA-256 of the uploaded plaintext (antd >= 0.16.0)
+	Sha256          string `json:"sha256"`            // hex SHA-256 of the uploaded plaintext (antd >= 0.17.0)
 	ChunksStored    uint64 `json:"chunks_stored"`     // number of chunks stored on the network
 	PaymentModeUsed string `json:"payment_mode_used"` // "auto", "merkle", or "single"
 }
@@ -44,7 +44,7 @@ type DataPutPublicResult struct {
 // returned to the caller; it is NOT stored on-network.
 type FilePutResult struct {
 	DataMap         string `json:"data_map"`          // hex-encoded rmp_serde-serialized DataMap
-	Sha256          string `json:"sha256"`            // hex SHA-256 of the uploaded plaintext (antd >= 0.16.0)
+	Sha256          string `json:"sha256"`            // hex SHA-256 of the uploaded plaintext (antd >= 0.17.0)
 	StorageCostAtto string `json:"storage_cost_atto"` // total storage cost in atto, "0" if all chunks already existed
 	GasCostWei      string `json:"gas_cost_wei"`      // total gas cost in wei as decimal string
 	ChunksStored    uint64 `json:"chunks_stored"`     // number of chunks stored on the network
@@ -56,7 +56,7 @@ type FilePutResult struct {
 // shareable retrieval handle.
 type FilePutPublicResult struct {
 	Address         string `json:"address"`           // hex network address of the stored DataMap
-	Sha256          string `json:"sha256"`            // hex SHA-256 of the uploaded plaintext (antd >= 0.16.0)
+	Sha256          string `json:"sha256"`            // hex SHA-256 of the uploaded plaintext (antd >= 0.17.0)
 	StorageCostAtto string `json:"storage_cost_atto"` // total storage cost in atto, "0" if all chunks already existed
 	GasCostWei      string `json:"gas_cost_wei"`      // total gas cost in wei as decimal string
 	ChunksStored    uint64 `json:"chunks_stored"`     // number of chunks stored on the network
@@ -158,7 +158,7 @@ type CandidateNodeEntry struct {
 // FinalizeUploadResult is the result of finalizing an externally-signed upload.
 type FinalizeUploadResult struct {
 	DataMap        string `json:"data_map"`                   // hex-encoded serialized DataMap (always returned)
-	Sha256         string `json:"sha256"`                     // hex SHA-256 of the uploaded plaintext (antd >= 0.16.0)
+	Sha256         string `json:"sha256"`                     // hex SHA-256 of the uploaded plaintext (antd >= 0.17.0)
 	Address        string `json:"address,omitempty"`          // legacy: set when store_data_map=true was passed (paid by daemon wallet)
 	DataMapAddress string `json:"data_map_address,omitempty"` // set when prepare was called with visibility="public" (paid in same external-signer batch)
 	ChunksStored   int64  `json:"chunks_stored"`              // number of chunks stored

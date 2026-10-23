@@ -920,7 +920,7 @@ components:
           type: string
           description: >-
             SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
-            that tools outside Autonomi can check (antd 0.16.0+).
+            that tools outside Autonomi can check (antd 0.17.0+).
         chunks_stored:
           type: integer
           description: Number of chunks stored on the network
@@ -940,7 +940,7 @@ components:
           type: string
           description: >-
             SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
-            that tools outside Autonomi can check (antd 0.16.0+).
+            that tools outside Autonomi can check (antd 0.17.0+).
         chunks_stored:
           type: integer
           description: Number of chunks stored on the network
@@ -1117,7 +1117,7 @@ components:
           type: string
           description: >-
             SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
-            that tools outside Autonomi can check (antd 0.16.0+).
+            that tools outside Autonomi can check (antd 0.17.0+).
         storage_cost_atto:
           type: string
           description: Total storage cost paid in token units (atto). "0" if all chunks already existed.
@@ -1147,7 +1147,7 @@ components:
           type: string
           description: >-
             SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
-            that tools outside Autonomi can check (antd 0.16.0+).
+            that tools outside Autonomi can check (antd 0.17.0+).
         storage_cost_atto:
           type: string
           description: Total storage cost paid in token units (atto). "0" if all chunks already existed.
@@ -1544,7 +1544,7 @@ components:
           type: string
           description: >-
             SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
-            that tools outside Autonomi can check (antd 0.16.0+).
+            that tools outside Autonomi can check (antd 0.17.0+).
         address:
           type: string
           description: >-
