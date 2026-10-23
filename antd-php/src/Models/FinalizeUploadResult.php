@@ -27,5 +27,7 @@ readonly class FinalizeUploadResult
         public string $dataMapAddress,
         /** Number of chunks stored on the network. */
         public int $chunksStored,
+        /** The plaintext's SHA-256 (hex); requires antd 0.17.0 or later, null on older daemons. */
+        public ?string $sha256 = null,
     ) {}
 }

@@ -86,6 +86,18 @@ class AntdClient
 
     // --- Internal helpers ---
 
+    /**
+     * An optional string field: null when the key is absent, null or empty
+     * (an older daemon, or gRPC's empty string), the value as given otherwise.
+     *
+     * @param array<mixed>|null $json
+     */
+    private static function optString(?array $json, string $key): ?string
+    {
+        $value = $json[$key] ?? null;
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
     private function b64Encode(string $data): string
     {
         return base64_encode($data);
@@ -303,6 +315,7 @@ class AntdClient
             address: (string)($json['address'] ?? ''),
             chunksStored: (int)($json['chunks_stored'] ?? 0),
             paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
+            sha256: self::optString($json, 'sha256'),
         );
     }
 
@@ -319,6 +332,7 @@ class AntdClient
                 address: (string)($json['address'] ?? ''),
                 chunksStored: (int)($json['chunks_stored'] ?? 0),
                 paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
+                sha256: self::optString($json, 'sha256'),
             ),
         );
     }
@@ -373,6 +387,7 @@ class AntdClient
             dataMap: (string)($json['data_map'] ?? ''),
             chunksStored: (int)($json['chunks_stored'] ?? 0),
             paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
+            sha256: self::optString($json, 'sha256'),
         );
     }
 
@@ -389,6 +404,7 @@ class AntdClient
                 dataMap: (string)($json['data_map'] ?? ''),
                 chunksStored: (int)($json['chunks_stored'] ?? 0),
                 paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
+                sha256: self::optString($json, 'sha256'),
             ),
         );
     }
@@ -559,6 +575,7 @@ class AntdClient
             gasCostWei: (string)($json['gas_cost_wei'] ?? ''),
             chunksStored: (int)($json['chunks_stored'] ?? 0),
             paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
+            sha256: self::optString($json, 'sha256'),
         );
     }
 
@@ -619,6 +636,7 @@ class AntdClient
             gasCostWei: (string)($json['gas_cost_wei'] ?? ''),
             chunksStored: (int)($json['chunks_stored'] ?? 0),
             paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
+            sha256: self::optString($json, 'sha256'),
         );
     }
 
@@ -840,6 +858,7 @@ class AntdClient
             address: (string)($json['address'] ?? ''),
             dataMapAddress: (string)($json['data_map_address'] ?? ''),
             chunksStored: (int)($json['chunks_stored'] ?? 0),
+            sha256: self::optString($json, 'sha256'),
         );
     }
 

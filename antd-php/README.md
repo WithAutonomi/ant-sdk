@@ -77,6 +77,8 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 | `dataGet(string $dataMap)` | Retrieve private data using a caller-held DataMap |
 | `dataCost(string $data, string $paymentMode = 'auto')` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+`DataPutPublicResult`, `DataPutResult`, `FilePutPublicResult`, `FilePutResult` and `FinalizeUploadResult` (from `finalizeUpload()`) carry `sha256`: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, null on older daemons.
+
 ### Chunks
 | Method | Description |
 |--------|-------------|
@@ -163,7 +165,7 @@ read from the network, so they can time out; retrying any of these calls is safe
 Every entry comes back as a `ManifestEntryInfo`: `effectiveName` (the path, or the content
 address when there is none), `path`, `size` (the size the creator recorded), `kind`
 (`"embedded"` or `"public"`), `contentAddress`, `dataMap` (decode only; null for public
-entries), `exactSize` and `error`. With `$resolve` the daemon fetches each entry's DataMap to
+entries), `exactSize`, `error` and `sha256` (the plaintext's SHA-256 in hex, or `null` when the manifest records none; requires antd 0.17.0 or later). With `$resolve` the daemon fetches each entry's DataMap to
 report `exactSize`; one entry's failure lands in its `error` instead of failing the call.
 
 **Sizes are ints, and unset is `null`.** `size` and `exactSize` are `?int`: an unset size reads
@@ -171,6 +173,8 @@ as `null`, never `0`, and a `null` size on a `ManifestEntryInput` is left out of
 The `.ant` bytes are plain PHP strings both ways; the base64 the REST API carries them in never
 reaches you. An entry the daemon refuses (bad hex, a path such as `../x`, two entries with one
 name) is a `BadRequestError` whose message names each `entries[i]`.
+
+`ManifestEntryInput` takes an optional `sha256` (hex): requires antd 0.17.0 or later. It is sent only when set and non-empty, and passed through as given; the daemon validates it, and a bad value is a `BadRequestError`.
 
 Every manifest method has an `Async` variant too.
 
