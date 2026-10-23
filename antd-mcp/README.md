@@ -69,9 +69,9 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 
 | # | Tool | Description |
 |---|------|-------------|
-| 1 | `store_data(text, private?, payment_mode?)` | Store text on the network. With `private=True`, the returned `address` is the caller-held DataMap (not stored on-network — keep it safe). |
+| 1 | `store_data(text, private?, payment_mode?)` | Store text on the network. With `private=True`, the returned `address` is the caller-held DataMap (not stored on-network — keep it safe). Also returns `sha256`, the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, `null` on older daemons. |
 | 2 | `retrieve_data(address, private?)` | Retrieve text by address. Pass `private=True` if `address` is a caller-held DataMap from a private store. |
-| 3 | `upload_file(path, private?, payment_mode?)` | Upload a local file. With `private=True`, the returned `address` is the caller-held DataMap. |
+| 3 | `upload_file(path, private?, payment_mode?)` | Upload a local file. With `private=True`, the returned `address` is the caller-held DataMap. Also returns `sha256`, the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, `null` on older daemons. |
 | 4 | `download_file(address, dest_path, private?)` | Download to local path — the **daemon** writes the file (daemon and MCP server must share a filesystem). Pass `private=True` if `address` is a caller-held DataMap from a private upload. |
 | 5 | `stream_download_file(address, dest_path, private?)` | Like `download_file`, but streams the bytes back to the MCP server process and writes `dest_path` on **this** host with constant memory (suits large objects / no shared filesystem). Returns `bytes_written`. |
 | 6 | `get_cost(text?, file_path?, payment_mode?)` | Estimate storage cost — returns `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
@@ -99,8 +99,8 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 | 13 | `prepare_upload(path, visibility?)` | Prepare a file upload for external signing. Pass `visibility="public"` to bundle the DataMap chunk into the same payment batch (the `data_map_address` on finalize is the shareable retrieval handle). |
 | 14 | `prepare_upload_public(path)` | Convenience wrapper for `prepare_upload(path, visibility="public")`. |
 | 15 | `prepare_data_upload(text)` | Prepare a data upload for external signing |
-| 16 | `finalize_upload(upload_id, tx_hashes)` | Finalize a wave-batch upload. Returns `address`, `chunks_stored`, `data_map`, and (for public uploads) `data_map_address`. A partial store returns a `PARTIAL_UPLOAD` error (see [Partial uploads](#partial-uploads)). |
-| 17 | `finalize_merkle_upload(upload_id, winner_pool_hash)` | Finalize a merkle-batch upload. Returns the same fields as `finalize_upload`; same `PARTIAL_UPLOAD` behaviour. |
+| 16 | `finalize_upload(upload_id, tx_hashes)` | Finalize a wave-batch upload. Returns `address`, `chunks_stored`, `data_map`, and (for public uploads) `data_map_address`, plus `sha256`, the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, `null` on older daemons. A partial store returns a `PARTIAL_UPLOAD` error (see [Partial uploads](#partial-uploads)). |
+| 17 | `finalize_merkle_upload(upload_id, winner_pool_hash)` | Finalize a merkle-batch upload. Returns the same fields as `finalize_upload` (including `sha256`); same `PARTIAL_UPLOAD` behaviour. |
 | 18 | `prepare_chunk_upload(data_base64)` | Prepare a single raw chunk for external-signer publish. Returns either `already_stored=True` (no payment needed) or a wave-batch payment intent. |
 | 19 | `finalize_chunk_upload(upload_id, tx_hashes)` | Submit a prepared chunk to the network after external payment. Returns `address`. |
 
@@ -127,10 +127,10 @@ A manifest (a `.ant` file, or an `ant://manifest/` link to one) bundles files th
 
 | # | Tool | Description |
 |---|------|-------------|
-| 30 | `build_manifest(entries, name?, torrent_info_hashes?, embed_roots?)` | Each entry is `{path?, size?, data_map? \| address?}`: give exactly one of `data_map` or `address`. Returns `manifest_base64` (the `.ant` bytes), `link` (null when the manifest exceeds 1,500 bytes; share the file instead) and `entries`. `embed_roots` defaults to true. A bad entry returns `BAD_REQUEST` with a message naming `entries[i]`. |
-| 31 | `decode_manifest(manifest_base64? \| link?, resolve?)` | Give exactly one of the base64 `.ant` bytes or a `link` (manifest link, file link or bare address). Returns `source` (`manifest` or `file_link`), `name`, the torrent hashes and `entries`. With `resolve=true` it also reads each entry's root from the network to fill in `exact_size`; one entry's failure is in its `error`, not a failed call. |
+| 30 | `build_manifest(entries, name?, torrent_info_hashes?, embed_roots?)` | Each entry is `{path?, size?, sha256?, data_map? \| address?}`: give exactly one of `data_map` or `address`. `sha256` is the file's plaintext SHA-256 (hex) to record; requires antd 0.17.0 or later; it is passed through as given and the daemon rejects a malformed one with `BAD_REQUEST`. Returns `manifest_base64` (the `.ant` bytes), `link` (null when the manifest exceeds 1,500 bytes; share the file instead) and `entries` (each with `sha256`, the hash the manifest records or `null`; requires antd 0.17.0 or later). `embed_roots` defaults to true. A bad entry returns `BAD_REQUEST` with a message naming `entries[i]`. |
+| 31 | `decode_manifest(manifest_base64? \| link?, resolve?)` | Give exactly one of the base64 `.ant` bytes or a `link` (manifest link, file link or bare address). Returns `source` (`manifest` or `file_link`), `name`, the torrent hashes and `entries` (each with `sha256`, the hash the manifest records or `null`; requires antd 0.17.0 or later). With `resolve=true` it also reads each entry's root from the network to fill in `exact_size`; one entry's failure is in its `error`, not a failed call. |
 
-Unset sizes are `null`, never 0. These tools need an antd daemon with the manifest API (antd 0.16.0 or later) and an [`antd`](https://pypi.org/project/antd/) Python SDK that has `build_manifest`. With an older SDK the server still starts and serves its other tools; it just does not register the manifest tools.
+Unset sizes and unset `sha256` values are `null`, never 0 or an empty string. These tools need an antd daemon with the manifest API (antd 0.16.0 or later) and an [`antd`](https://pypi.org/project/antd/) Python SDK that has `build_manifest`. With an older SDK the server still starts and serves its other tools; it just does not register the manifest tools.
 
 ### Payment Modes
 
