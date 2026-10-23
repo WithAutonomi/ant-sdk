@@ -64,6 +64,8 @@ from .models import (
 )
 from . import _manifests
 
+_opt_str = _manifests._opt_str  # unset and "" both read as None
+
 
 def _frame_from_chunk(chunk) -> DownloadFrame:
     """Map a wire ``DataChunk`` (oneof kind {data | progress}) onto a public
@@ -111,6 +113,7 @@ def _file_put_result_from_resp(resp) -> FilePutResult:
         gas_cost_wei=resp.gas_cost_wei,
         chunks_stored=resp.chunks_stored,
         payment_mode_used=resp.payment_mode_used,
+        sha256=_opt_str(resp.sha256),
     )
 
 
@@ -121,6 +124,7 @@ def _file_put_public_result_from_resp(resp) -> FilePutPublicResult:
         gas_cost_wei=resp.gas_cost_wei,
         chunks_stored=resp.chunks_stored,
         payment_mode_used=resp.payment_mode_used,
+        sha256=_opt_str(resp.sha256),
     )
 
 
@@ -195,6 +199,7 @@ def _finalize_upload_result_from_resp(resp) -> FinalizeUploadResult:
         chunks_stored=int(resp.chunks_stored),
         data_map=resp.data_map,
         data_map_address=resp.data_map_address,
+        sha256=_opt_str(resp.sha256),
     )
 
 
@@ -250,8 +255,8 @@ def _build_manifest_request(
     torrent_info_hashes: list[str],
     embed_roots: bool,
 ) -> manifests_pb2.BuildManifestRequest:
-    """A BuildManifestRequest. ``path``, ``size`` and ``name`` are proto3
-    ``optional``, so they are set only when given (a size of 0 is given);
+    """A BuildManifestRequest. ``path``, ``size``, ``sha256`` and ``name`` are
+    proto3 ``optional``, so they are set only when given (a size of 0 is given);
     ``embed_roots`` is always set."""
     req = manifests_pb2.BuildManifestRequest(
         torrent_info_hashes=torrent_info_hashes, embed_roots=bool(embed_roots),
@@ -264,6 +269,8 @@ def _build_manifest_request(
             entry.path = e.path
         if e.size is not None:
             entry.size = e.size
+        if e.sha256:
+            entry.sha256 = e.sha256
         if e.data_map:
             entry.data_map = e.data_map
         else:
@@ -431,7 +438,7 @@ class GrpcClient:
         """Store private encrypted data. Returns the caller-held DataMap (hex)."""
         try:
             resp = self._data.Put(data_pb2.PutDataRequest(data=data, payment_mode=payment_mode.value))
-            return DataPutResult(data_map=resp.data_map, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used)
+            return DataPutResult(data_map=resp.data_map, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used, sha256=_opt_str(resp.sha256))
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -447,7 +454,7 @@ class GrpcClient:
         """Store public data. Returns the on-network DataMap address."""
         try:
             resp = self._data.PutPublic(data_pb2.PutPublicDataRequest(data=data, payment_mode=payment_mode.value))
-            return DataPutPublicResult(address=resp.address, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used)
+            return DataPutPublicResult(address=resp.address, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used, sha256=_opt_str(resp.sha256))
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -962,7 +969,7 @@ class AsyncGrpcClient:
         """Store private encrypted data. Returns the caller-held DataMap (hex)."""
         try:
             resp = await self._data.Put(data_pb2.PutDataRequest(data=data, payment_mode=payment_mode.value))
-            return DataPutResult(data_map=resp.data_map, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used)
+            return DataPutResult(data_map=resp.data_map, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used, sha256=_opt_str(resp.sha256))
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -978,7 +985,7 @@ class AsyncGrpcClient:
         """Store public data. Returns the on-network DataMap address."""
         try:
             resp = await self._data.PutPublic(data_pb2.PutPublicDataRequest(data=data, payment_mode=payment_mode.value))
-            return DataPutPublicResult(address=resp.address, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used)
+            return DataPutPublicResult(address=resp.address, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used, sha256=_opt_str(resp.sha256))
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 

@@ -18,6 +18,16 @@ namespace {
 /// Media type that opts the stream endpoints into NDJSON progress framing.
 constexpr const char* kNdjsonContentType = "application/x-ndjson";
 
+/// The `sha256` of an upload response: std::nullopt when the key is absent
+/// (antd before 0.17.0), `null`, mistyped or empty.
+std::optional<std::string> opt_sha256(const json& j) {
+    const auto it = j.find("sha256");
+    if (it == j.end() || !it->is_string() || it->get_ref<const std::string&>().empty()) {
+        return std::nullopt;
+    }
+    return it->get<std::string>();
+}
+
 /// Parse one NDJSON line into a [DownloadFrame], appending it to `out`.
 ///
 /// Returns false for blank lines and unknown frame types (forward-compat) —
@@ -292,6 +302,7 @@ DataPutPublicResult Client::data_put_public(const std::vector<uint8_t>& data,
         .address = j.value("address", ""),
         .chunks_stored = j.value<std::uint64_t>("chunks_stored", 0),
         .payment_mode_used = j.value("payment_mode_used", ""),
+        .sha256 = opt_sha256(j),
     };
 }
 
@@ -317,6 +328,7 @@ DataPutResult Client::data_put(const std::vector<uint8_t>& data,
         .data_map = j.value("data_map", ""),
         .chunks_stored = j.value<std::uint64_t>("chunks_stored", 0),
         .payment_mode_used = j.value("payment_mode_used", ""),
+        .sha256 = opt_sha256(j),
     };
 }
 
@@ -474,6 +486,7 @@ FilePutResult Client::file_put(std::string_view path, PaymentMode payment_mode) 
         .gas_cost_wei = j.value("gas_cost_wei", ""),
         .chunks_stored = j.value<std::uint64_t>("chunks_stored", 0),
         .payment_mode_used = j.value("payment_mode_used", ""),
+        .sha256 = opt_sha256(j),
     };
 }
 
@@ -497,6 +510,7 @@ FilePutPublicResult Client::file_put_public(std::string_view path,
         .gas_cost_wei = j.value("gas_cost_wei", ""),
         .chunks_stored = j.value<std::uint64_t>("chunks_stored", 0),
         .payment_mode_used = j.value("payment_mode_used", ""),
+        .sha256 = opt_sha256(j),
     };
 }
 
@@ -673,6 +687,7 @@ FinalizeUploadResult Client::finalize_upload(std::string_view upload_id,
         .address = j.value("address", ""),
         .data_map_address = j.value("data_map_address", ""),
         .chunks_stored = j.value("chunks_stored", int64_t{0}),
+        .sha256 = opt_sha256(j),
     };
 }
 
@@ -689,6 +704,7 @@ FinalizeUploadResult Client::finalize_merkle_upload(std::string_view upload_id,
         .address = j.value("address", ""),
         .data_map_address = j.value("data_map_address", ""),
         .chunks_stored = j.value("chunks_stored", int64_t{0}),
+        .sha256 = opt_sha256(j),
     };
 }
 

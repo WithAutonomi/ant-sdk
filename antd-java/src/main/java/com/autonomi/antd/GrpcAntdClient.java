@@ -259,7 +259,8 @@ public class GrpcAntdClient implements AutoCloseable {
                     .setPaymentMode(paymentMode.wireValue())
                     .build();
             PutDataResponse resp = dataStub.put(req);
-            return new DataPutResult(resp.getDataMap(), resp.getChunksStored(), resp.getPaymentModeUsed());
+            return new DataPutResult(resp.getDataMap(), resp.getChunksStored(), resp.getPaymentModeUsed(),
+                    ManifestWire.emptyToNull(resp.getSha256()));
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
@@ -286,7 +287,8 @@ public class GrpcAntdClient implements AutoCloseable {
                     .setPaymentMode(paymentMode.wireValue())
                     .build();
             PutPublicDataResponse resp = dataStub.putPublic(req);
-            return new DataPutPublicResult(resp.getAddress(), resp.getChunksStored(), resp.getPaymentModeUsed());
+            return new DataPutPublicResult(resp.getAddress(), resp.getChunksStored(), resp.getPaymentModeUsed(),
+                    ManifestWire.emptyToNull(resp.getSha256()));
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
@@ -623,7 +625,8 @@ public class GrpcAntdClient implements AutoCloseable {
                     resp.getStorageCostAtto(),
                     resp.getGasCostWei(),
                     resp.getChunksStored(),
-                    resp.getPaymentModeUsed());
+                    resp.getPaymentModeUsed(),
+                    ManifestWire.emptyToNull(resp.getSha256()));
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
@@ -657,7 +660,8 @@ public class GrpcAntdClient implements AutoCloseable {
                     resp.getStorageCostAtto(),
                     resp.getGasCostWei(),
                     resp.getChunksStored(),
-                    resp.getPaymentModeUsed());
+                    resp.getPaymentModeUsed(),
+                    ManifestWire.emptyToNull(resp.getSha256()));
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
@@ -1158,6 +1162,7 @@ public class GrpcAntdClient implements AutoCloseable {
                 resp.getAddress(),
                 resp.getChunksStored(),
                 resp.getDataMap(),
-                resp.getDataMapAddress());
+                resp.getDataMapAddress(),
+                ManifestWire.emptyToNull(resp.getSha256()));
     }
 }

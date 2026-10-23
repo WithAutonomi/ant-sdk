@@ -197,6 +197,11 @@ public class AntdClient implements AutoCloseable {
         return ExceptionFactory.fromErrorBody(status, msg, parsed);
     }
 
+    /** A string the daemon may omit: absent, {@code null} and empty all read as {@code null}. */
+    static String optStr(Map<String, Object> m, String key) {
+        return m.get(key) instanceof String s && !s.isEmpty() ? s : null;
+    }
+
     private static String str(Map<String, Object> m, String key) {
         Object v = m.get(key);
         return v != null ? v.toString() : "";
@@ -248,7 +253,8 @@ public class AntdClient implements AutoCloseable {
         return new DataPutResult(
                 str(j, "data_map"),
                 num(j, "chunks_stored"),
-                str(j, "payment_mode_used"));
+                str(j, "payment_mode_used"),
+                optStr(j, "sha256"));
     }
 
     public DataPutResult dataPut(byte[] data) {
@@ -286,7 +292,8 @@ public class AntdClient implements AutoCloseable {
         return new DataPutPublicResult(
                 str(j, "address"),
                 num(j, "chunks_stored"),
-                str(j, "payment_mode_used"));
+                str(j, "payment_mode_used"),
+                optStr(j, "sha256"));
     }
 
     public DataPutPublicResult dataPutPublic(byte[] data) {
@@ -565,7 +572,8 @@ public class AntdClient implements AutoCloseable {
                 str(j, "storage_cost_atto"),
                 str(j, "gas_cost_wei"),
                 num(j, "chunks_stored"),
-                str(j, "payment_mode_used"));
+                str(j, "payment_mode_used"),
+                optStr(j, "sha256"));
     }
 
     private static FilePutPublicResult parseFilePutPublicResult(Map<String, Object> j) {
@@ -574,7 +582,8 @@ public class AntdClient implements AutoCloseable {
                 str(j, "storage_cost_atto"),
                 str(j, "gas_cost_wei"),
                 num(j, "chunks_stored"),
-                str(j, "payment_mode_used"));
+                str(j, "payment_mode_used"),
+                optStr(j, "sha256"));
     }
 
     /** Pre-upload cost breakdown for the file at {@code path}. */
@@ -770,7 +779,8 @@ public class AntdClient implements AutoCloseable {
                 str(j, "address"),
                 num(j, "chunks_stored"),
                 str(j, "data_map"),
-                str(j, "data_map_address"));
+                str(j, "data_map_address"),
+                optStr(j, "sha256"));
     }
 
     /**

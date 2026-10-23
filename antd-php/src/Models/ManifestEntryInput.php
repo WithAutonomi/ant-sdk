@@ -34,5 +34,11 @@ readonly class ManifestEntryInput
         public ?string $dataMap = null,
         /** A public file's DataMap address (hex, 32 bytes). */
         public ?string $address = null,
+        /**
+         * The plaintext's SHA-256 (hex) to record for the entry, passed to the
+         * daemon as given (it validates it). Null or empty: none is recorded
+         * and the key is left out of the request. Requires antd 0.17.0 or later.
+         */
+        public ?string $sha256 = null,
     ) {}
 }

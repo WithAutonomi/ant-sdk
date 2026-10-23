@@ -39,16 +39,19 @@ module Antd
 
   # Result of a private data put. The DataMap is returned to the caller;
   # it is NOT stored on-network.
-  DataPutResult = Struct.new(:data_map, :chunks_stored, :payment_mode_used, keyword_init: true) do
-    def initialize(data_map: "", chunks_stored: 0, payment_mode_used: "")
+  #
+  # +sha256+ (antd 0.17.0 or later) is the plaintext's SHA-256 as lowercase
+  # hex, or nil on an older daemon. The put results below carry it too.
+  DataPutResult = Struct.new(:data_map, :chunks_stored, :payment_mode_used, :sha256, keyword_init: true) do
+    def initialize(data_map: "", chunks_stored: 0, payment_mode_used: "", sha256: nil)
       super
     end
   end
 
   # Result of a public data put. The DataMap is stored on-network as an extra
   # chunk; +address+ is the shareable retrieval handle.
-  DataPutPublicResult = Struct.new(:address, :chunks_stored, :payment_mode_used, keyword_init: true) do
-    def initialize(address: "", chunks_stored: 0, payment_mode_used: "")
+  DataPutPublicResult = Struct.new(:address, :chunks_stored, :payment_mode_used, :sha256, keyword_init: true) do
+    def initialize(address: "", chunks_stored: 0, payment_mode_used: "", sha256: nil)
       super
     end
   end
@@ -61,6 +64,7 @@ module Antd
     :gas_cost_wei,       # decimal string
     :chunks_stored,      # uint64
     :payment_mode_used,  # "auto", "merkle", or "single"
+    :sha256,             # plaintext SHA-256 (hex), nil before antd 0.17.0
     keyword_init: true
   )
 
@@ -72,6 +76,7 @@ module Antd
     :gas_cost_wei,
     :chunks_stored,
     :payment_mode_used,
+    :sha256,             # plaintext SHA-256 (hex), nil before antd 0.17.0
     keyword_init: true
   )
 
@@ -111,11 +116,13 @@ module Antd
   # +data_map_address+ is populated only when prepare was called with
   # +visibility: "public"+ — the DataMap chunk was paid + stored in the same
   # external-signer batch, and this is the shareable retrieval handle.
+  # +sha256+ (antd 0.17.0 or later) is the plaintext's SHA-256 as lowercase
+  # hex, or nil on an older daemon.
   FinalizeUploadResult = Struct.new(
-    :address, :chunks_stored, :data_map, :data_map_address,
+    :address, :chunks_stored, :data_map, :data_map_address, :sha256,
     keyword_init: true
   ) do
-    def initialize(address: "", chunks_stored: 0, data_map: "", data_map_address: "")
+    def initialize(address: "", chunks_stored: 0, data_map: "", data_map_address: "", sha256: nil)
       super
     end
   end

@@ -66,6 +66,9 @@ struct DataPutResult {
     std::string data_map;             // hex caller-held DataMap
     std::uint64_t chunks_stored{0};
     std::string payment_mode_used;
+    /// The plaintext's SHA-256 (hex, 64 lowercase characters). Unset on daemons
+    /// before antd 0.17.0 (REST key absent, gRPC "").
+    std::optional<std::string> sha256{};
 };
 
 /// Result of a public data put. The DataMap is stored on-network as an extra
@@ -76,6 +79,9 @@ struct DataPutPublicResult {
     std::string address;              // hex on-network DataMap address
     std::uint64_t chunks_stored{0};
     std::string payment_mode_used;
+    /// The plaintext's SHA-256 (hex, 64 lowercase characters). Unset on daemons
+    /// before antd 0.17.0 (REST key absent, gRPC "").
+    std::optional<std::string> sha256{};
 };
 
 /// Result of a private file upload. The DataMap is returned to the caller;
@@ -86,6 +92,9 @@ struct FilePutResult {
     std::string gas_cost_wei;         // decimal string
     std::uint64_t chunks_stored{0};
     std::string payment_mode_used;
+    /// The plaintext's SHA-256 (hex, 64 lowercase characters). Unset on daemons
+    /// before antd 0.17.0 (REST key absent, gRPC "").
+    std::optional<std::string> sha256{};
 };
 
 /// Result of a public file upload. The DataMap is stored on-network as an
@@ -96,6 +105,9 @@ struct FilePutPublicResult {
     std::string gas_cost_wei;         // decimal string
     std::uint64_t chunks_stored{0};
     std::string payment_mode_used;
+    /// The plaintext's SHA-256 (hex, 64 lowercase characters). Unset on daemons
+    /// before antd 0.17.0 (REST key absent, gRPC "").
+    std::optional<std::string> sha256{};
 };
 
 /// Wallet address response.
@@ -162,6 +174,9 @@ struct FinalizeUploadResult {
     std::string data_map_address; // set when prepare was called with visibility="public"
                                   // (paid in same external-signer batch); "" otherwise
     int64_t chunks_stored{0};
+    /// The plaintext's SHA-256 (hex, 64 lowercase characters). Unset on daemons
+    /// before antd 0.17.0 (REST key absent, gRPC "").
+    std::optional<std::string> sha256{};
 };
 
 /// Result of preparing a single-chunk publish for external signing via
@@ -554,5 +569,16 @@ struct PointerFinalizeResult {
     /// Transfers only: where the close group says the transfer stands.
     std::optional<PointerFinality> finality;
 };
+
+namespace detail {
+
+/// An empty string reads as none: a proto3 string field has no presence, so
+/// "" is its zero value and means "not reported" (sha256 before antd 0.17.0).
+inline std::optional<std::string> none_if_empty(std::string s) {
+    if (s.empty()) return std::nullopt;
+    return s;
+}
+
+}  // namespace detail
 
 }  // namespace antd

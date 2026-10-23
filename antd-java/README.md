@@ -102,6 +102,8 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 | `dataGet(dataMap)` | Retrieve private data using a caller-held DataMap |
 | `dataCost(data, paymentMode)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult`, and `FinalizeUploadResult` from `finalizeUpload` and `finalizeMerkleUpload`) has `sha256()`: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, `null` on older daemons. It is the last record component, so existing constructor calls still compile.
+
 ### Chunks
 
 | Method | Description |
@@ -120,6 +122,8 @@ A manifest (ADR-0006) describes a set of files as one `.ant` document, or as one
 | `buildManifest(entries[, options])` | Build a manifest — returns `BuiltManifest` (`manifest` bytes, `link` or `null` when it does not fit, `entries` in encoded order). Each entry sets exactly one of `dataMap` or `address`; both or neither is refused before anything is sent, as the same `BadRequestException` (400, the daemon's message) a daemon refusal gives. `BuildManifestOptions` carries `name`, `torrentInfoHashes` and `keepShrunkDataMaps` (default `false`: roots are embedded) |
 | `decodeManifest(bytes, resolve)` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrentInfoHashV1`, `torrentInfoHashV2`, `entries`) |
 | `decodeManifestLink(link, resolve)` | Decode an `ant://` manifest link, a file link or a bare address. A file link reads as one public entry with no path, from `source` `file_link` |
+
+An entry input can also carry `sha256` (`ManifestEntryInput.withSha256(hex)`): the plaintext's SHA-256 to record for the file; requires antd 0.17.0 or later. It is sent only when set and non-empty, and passed through as given: the daemon validates it, and a malformed one is a `BadRequestException`. Each `ManifestEntryInfo` has `sha256` too, the hash recorded for the entry (hex; requires antd 0.17.0 or later), `null` when none.
 
 Each `ManifestEntryInfo` has `effectiveName` (the path, or the content address when there is none), `path`, `size` (the size recorded by the creator), `kind` (`embedded` or `public`), `contentAddress`, `dataMap` (decode only, embedded entries), `exactSize` (from an embedded root DataMap, or after a resolving decode) and `error` (why one entry's resolve failed; the call itself succeeds). Sizes are `Long`, and unset is `null`, never `0`; so are an absent path, link, name or hash. The `.ant` bytes are always a raw `byte[]`: REST's base64 stays inside the client. An entry the daemon rejects (an invalid path such as `../x`, DataMap or address) is a `BadRequestException` (`INVALID_ARGUMENT` over gRPC) whose message names it as `entries[i]`. Over gRPC every manifest call raises its own message limits, 256 MiB in and 100 MiB out, because a manifest can be 64 MiB; the channel's other calls keep gRPC's defaults.
 

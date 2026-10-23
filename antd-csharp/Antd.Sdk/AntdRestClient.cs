@@ -125,7 +125,7 @@ public sealed partial class AntdRestClient : IAntdClient
     {
         var body = new { data = Convert.ToBase64String(data), payment_mode = paymentMode.ToWire() };
         var resp = await PostJsonAsync<DataPutDto>("/v1/data", body);
-        return new DataPutResult(resp.DataMap, resp.ChunksStored, resp.PaymentModeUsed);
+        return new DataPutResult(resp.DataMap, resp.ChunksStored, resp.PaymentModeUsed, ManifestWire.NullIfEmpty(resp.Sha256));
     }
 
     public async Task<byte[]> DataGetAsync(string dataMap)
@@ -138,7 +138,7 @@ public sealed partial class AntdRestClient : IAntdClient
     {
         var body = new { data = Convert.ToBase64String(data), payment_mode = paymentMode.ToWire() };
         var resp = await PostJsonAsync<DataPutPublicDto>("/v1/data/public", body);
-        return new DataPutPublicResult(resp.Address, resp.ChunksStored, resp.PaymentModeUsed);
+        return new DataPutPublicResult(resp.Address, resp.ChunksStored, resp.PaymentModeUsed, ManifestWire.NullIfEmpty(resp.Sha256));
     }
 
     public async Task<byte[]> DataGetPublicAsync(string address)
@@ -325,7 +325,7 @@ public sealed partial class AntdRestClient : IAntdClient
     {
         var body = new { path, payment_mode = paymentMode.ToWire() };
         var resp = await PostJsonAsync<FilePutDto>("/v1/files", body);
-        return new FilePutResult(resp.DataMap, resp.StorageCostAtto, resp.GasCostWei, resp.ChunksStored, resp.PaymentModeUsed);
+        return new FilePutResult(resp.DataMap, resp.StorageCostAtto, resp.GasCostWei, resp.ChunksStored, resp.PaymentModeUsed, ManifestWire.NullIfEmpty(resp.Sha256));
     }
 
     public async Task FileGetAsync(string dataMap, string destPath)
@@ -337,7 +337,7 @@ public sealed partial class AntdRestClient : IAntdClient
     {
         var body = new { path, payment_mode = paymentMode.ToWire() };
         var resp = await PostJsonAsync<FilePutPublicDto>("/v1/files/public", body);
-        return new FilePutPublicResult(resp.Address, resp.StorageCostAtto, resp.GasCostWei, resp.ChunksStored, resp.PaymentModeUsed);
+        return new FilePutPublicResult(resp.Address, resp.StorageCostAtto, resp.GasCostWei, resp.ChunksStored, resp.PaymentModeUsed, ManifestWire.NullIfEmpty(resp.Sha256));
     }
 
     public async Task FileGetPublicAsync(string address, string destPath)
@@ -402,7 +402,8 @@ public sealed partial class AntdRestClient : IAntdClient
             resp.Address ?? "",
             resp.ChunksStored,
             resp.DataMap ?? "",
-            resp.DataMapAddress ?? "");
+            resp.DataMapAddress ?? "",
+            ManifestWire.NullIfEmpty(resp.Sha256));
     }
 
     public async Task<FinalizeMerkleUploadResult> FinalizeMerkleUploadAsync(string uploadId, string winnerPoolHash)
@@ -413,7 +414,8 @@ public sealed partial class AntdRestClient : IAntdClient
             resp.Address ?? "",
             resp.ChunksStored,
             resp.DataMap ?? "",
-            resp.DataMapAddress ?? "");
+            resp.DataMapAddress ?? "",
+            ManifestWire.NullIfEmpty(resp.Sha256));
     }
 
     private static PrepareUploadResult MapPrepareUpload(PrepareUploadDto resp)
@@ -448,26 +450,30 @@ public sealed partial class AntdRestClient : IAntdClient
     private sealed record DataPutPublicDto(
         [property: JsonPropertyName("address")] string Address,
         [property: JsonPropertyName("chunks_stored")] ulong ChunksStored = 0,
-        [property: JsonPropertyName("payment_mode_used")] string PaymentModeUsed = "");
+        [property: JsonPropertyName("payment_mode_used")] string PaymentModeUsed = "",
+        [property: JsonPropertyName("sha256")] string? Sha256 = null);
 
     private sealed record DataPutDto(
         [property: JsonPropertyName("data_map")] string DataMap,
         [property: JsonPropertyName("chunks_stored")] ulong ChunksStored = 0,
-        [property: JsonPropertyName("payment_mode_used")] string PaymentModeUsed = "");
+        [property: JsonPropertyName("payment_mode_used")] string PaymentModeUsed = "",
+        [property: JsonPropertyName("sha256")] string? Sha256 = null);
 
     private sealed record FilePutDto(
         [property: JsonPropertyName("data_map")] string DataMap,
         [property: JsonPropertyName("storage_cost_atto")] string StorageCostAtto,
         [property: JsonPropertyName("gas_cost_wei")] string GasCostWei,
         [property: JsonPropertyName("chunks_stored")] ulong ChunksStored,
-        [property: JsonPropertyName("payment_mode_used")] string PaymentModeUsed);
+        [property: JsonPropertyName("payment_mode_used")] string PaymentModeUsed,
+        [property: JsonPropertyName("sha256")] string? Sha256 = null);
 
     private sealed record FilePutPublicDto(
         [property: JsonPropertyName("address")] string Address,
         [property: JsonPropertyName("storage_cost_atto")] string StorageCostAtto,
         [property: JsonPropertyName("gas_cost_wei")] string GasCostWei,
         [property: JsonPropertyName("chunks_stored")] ulong ChunksStored,
-        [property: JsonPropertyName("payment_mode_used")] string PaymentModeUsed);
+        [property: JsonPropertyName("payment_mode_used")] string PaymentModeUsed,
+        [property: JsonPropertyName("sha256")] string? Sha256 = null);
 
     private sealed record ChunkPutDto(
         [property: JsonPropertyName("cost")] string Cost,
@@ -524,7 +530,8 @@ public sealed partial class AntdRestClient : IAntdClient
         [property: JsonPropertyName("address")] string? Address = null,
         [property: JsonPropertyName("chunks_stored")] long ChunksStored = 0,
         [property: JsonPropertyName("data_map")] string? DataMap = null,
-        [property: JsonPropertyName("data_map_address")] string? DataMapAddress = null);
+        [property: JsonPropertyName("data_map_address")] string? DataMapAddress = null,
+        [property: JsonPropertyName("sha256")] string? Sha256 = null);
 
     private sealed record PrepareChunkDto(
         [property: JsonPropertyName("address")] string? Address = null,

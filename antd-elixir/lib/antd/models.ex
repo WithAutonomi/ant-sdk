@@ -79,15 +79,19 @@ defmodule Antd.DataPutResult do
   REST transport populates `:chunks_stored` and `:payment_mode_used`; the
   gRPC transport currently leaves them empty because proto
   `PutDataResponse` only carries `data_map`.
+
+  `:sha256` is the plaintext's SHA-256 (lowercase hex) on both transports, or
+  `nil` on a daemon older than antd 0.17.0.
   """
 
   @enforce_keys [:data_map]
-  defstruct data_map: "", chunks_stored: 0, payment_mode_used: ""
+  defstruct data_map: "", chunks_stored: 0, payment_mode_used: "", sha256: nil
 
   @type t :: %__MODULE__{
           data_map: String.t(),
           chunks_stored: non_neg_integer(),
-          payment_mode_used: String.t()
+          payment_mode_used: String.t(),
+          sha256: String.t() | nil
         }
 end
 
@@ -97,16 +101,19 @@ defmodule Antd.DataPutPublicResult do
 
   The DataMap is stored on-network as an additional chunk; `:address` is the
   shareable retrieval handle. REST populates `:chunks_stored` and
-  `:payment_mode_used`; gRPC currently leaves them empty.
+  `:payment_mode_used`; gRPC currently leaves them empty. `:sha256` is the
+  plaintext's SHA-256 (lowercase hex), or `nil` on a daemon older than antd
+  0.17.0.
   """
 
   @enforce_keys [:address]
-  defstruct address: "", chunks_stored: 0, payment_mode_used: ""
+  defstruct address: "", chunks_stored: 0, payment_mode_used: "", sha256: nil
 
   @type t :: %__MODULE__{
           address: String.t(),
           chunks_stored: non_neg_integer(),
-          payment_mode_used: String.t()
+          payment_mode_used: String.t(),
+          sha256: String.t() | nil
         }
 end
 
@@ -115,17 +122,27 @@ defmodule Antd.FilePutResult do
   Result of a private file upload.
 
   The DataMap is returned to the caller; it is NOT stored on-network.
+  `:sha256` is the plaintext's SHA-256 (lowercase hex), or `nil` on a daemon
+  older than antd 0.17.0.
   """
 
   @enforce_keys [:data_map, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]
-  defstruct [:data_map, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]
+  defstruct [
+    :data_map,
+    :storage_cost_atto,
+    :gas_cost_wei,
+    :chunks_stored,
+    :payment_mode_used,
+    sha256: nil
+  ]
 
   @type t :: %__MODULE__{
           data_map: String.t(),
           storage_cost_atto: String.t(),
           gas_cost_wei: String.t(),
           chunks_stored: non_neg_integer(),
-          payment_mode_used: String.t()
+          payment_mode_used: String.t(),
+          sha256: String.t() | nil
         }
 end
 
@@ -134,18 +151,27 @@ defmodule Antd.FilePutPublicResult do
   Result of a public file upload.
 
   The DataMap is stored on-network as an additional chunk; `:address` is the
-  shareable retrieval handle.
+  shareable retrieval handle. `:sha256` is the plaintext's SHA-256 (lowercase
+  hex), or `nil` on a daemon older than antd 0.17.0.
   """
 
   @enforce_keys [:address, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]
-  defstruct [:address, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]
+  defstruct [
+    :address,
+    :storage_cost_atto,
+    :gas_cost_wei,
+    :chunks_stored,
+    :payment_mode_used,
+    sha256: nil
+  ]
 
   @type t :: %__MODULE__{
           address: String.t(),
           storage_cost_atto: String.t(),
           gas_cost_wei: String.t(),
           chunks_stored: non_neg_integer(),
-          payment_mode_used: String.t()
+          payment_mode_used: String.t(),
+          sha256: String.t() | nil
         }
 end
 
@@ -261,17 +287,19 @@ defmodule Antd.FinalizeUploadResult do
   daemon on success). `:data_map_address` is populated only when prepare was
   called with `visibility: "public"` — the DataMap chunk was bundled into the
   same external-signer payment batch and stored on-network, and this is the
-  shareable retrieval handle.
+  shareable retrieval handle. `:sha256` is the plaintext's SHA-256 (lowercase
+  hex), or `nil` on a daemon older than antd 0.17.0.
   """
 
   @enforce_keys [:address, :chunks_stored]
-  defstruct [:address, :chunks_stored, data_map: "", data_map_address: ""]
+  defstruct [:address, :chunks_stored, data_map: "", data_map_address: "", sha256: nil]
 
   @type t :: %__MODULE__{
           address: String.t(),
           chunks_stored: integer(),
           data_map: String.t(),
-          data_map_address: String.t()
+          data_map_address: String.t(),
+          sha256: String.t() | nil
         }
 end
 

@@ -386,6 +386,7 @@ describe("RestClient", () => {
         address: "0xabc",
         chunksStored: 3,
         paymentModeUsed: "single",
+        sha256: null,
       });
     });
 
@@ -436,6 +437,7 @@ describe("RestClient", () => {
         dataMap: "0xdm",
         chunksStored: 2,
         paymentModeUsed: "merkle",
+        sha256: null,
       });
     });
 
@@ -706,6 +708,7 @@ describe("RestClient", () => {
         gasCostWei: "42",
         chunksStored: 3,
         paymentModeUsed: "auto",
+        sha256: null,
       });
     });
 
@@ -743,6 +746,7 @@ describe("RestClient", () => {
         gasCostWei: "42",
         chunksStored: 2,
         paymentModeUsed: "merkle",
+        sha256: null,
       });
 
       const fetchFn = vi.mocked(fetch);
@@ -901,6 +905,7 @@ describe("RestClient", () => {
         chunksStored: 5,
         dataMap: "",
         dataMapAddress: "",
+        sha256: null,
       });
     });
   });
@@ -913,6 +918,7 @@ describe("RestClient", () => {
         chunksStored: 5,
         dataMap: "",
         dataMapAddress: "",
+        sha256: null,
       });
     });
 
@@ -1013,6 +1019,7 @@ describe("RestClient", () => {
         chunksStored: 4,
         dataMap: "deadbeef",
         dataMapAddress: "cafebabe",
+        sha256: null,
       });
     });
 

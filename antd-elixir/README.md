@@ -181,10 +181,10 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 
 | Function | Description |
 |----------|-------------|
-| `data_put_public(client, data, opts \\ [])` | Store public data — returns `Antd.DataPutPublicResult` (DataMap stored on-network). `opts`: `payment_mode: :auto | :merkle | :single`. |
+| `data_put_public(client, data, opts \\ [])` | Store public data — returns `Antd.DataPutPublicResult` (DataMap stored on-network). `opts`: `payment_mode: :auto | :merkle | :single`. The result's `sha256` is the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, `nil` on older daemons. |
 | `data_get_public(client, address)` | Retrieve public data by address |
 | `data_stream_public(client, address)` | Stream public data by address with constant memory — returns `{:ok, Enumerable}` of binary chunks |
-| `data_put(client, data, opts \\ [])` | Store encrypted private data — returns `Antd.DataPutResult` (DataMap returned to caller). `opts`: `payment_mode:`. |
+| `data_put(client, data, opts \\ [])` | Store encrypted private data — returns `Antd.DataPutResult` (DataMap returned to caller). `opts`: `payment_mode:`. The result's `sha256` is the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, `nil` on older daemons. |
 | `data_get(client, data_map)` | Retrieve private data using a caller-held DataMap |
 | `data_stream(client, data_map)` | Stream private data for a caller-held DataMap with constant memory — returns `{:ok, Enumerable}` of binary chunks |
 | `data_cost(client, data, opts \\ [])` | Estimate storage cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
@@ -200,11 +200,15 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 
 | Function | Description |
 |----------|-------------|
-| `file_put(client, path, opts \\ [])` | Upload a file privately — returns `Antd.FilePutResult` (DataMap returned to caller). `opts`: `payment_mode:`. |
+| `file_put(client, path, opts \\ [])` | Upload a file privately — returns `Antd.FilePutResult` (DataMap returned to caller). `opts`: `payment_mode:`. The result's `sha256` is the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, `nil` on older daemons. |
 | `file_get(client, data_map, dest_path)` | Download a private file using a caller-held DataMap |
-| `file_put_public(client, path, opts \\ [])` | Upload a file publicly — returns `Antd.FilePutPublicResult` (DataMap stored on-network). `opts`: `payment_mode:`. |
+| `file_put_public(client, path, opts \\ [])` | Upload a file publicly — returns `Antd.FilePutPublicResult` (DataMap stored on-network). `opts`: `payment_mode:`. The result's `sha256` is the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, `nil` on older daemons. |
 | `file_get_public(client, address, dest_path)` | Download a public file by address |
 | `file_cost(client, path, is_public, opts \\ [])` | Estimate upload cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
+
+The same `sha256` field is on the `Antd.FinalizeUploadResult` that `finalize_upload` and
+`finalize_merkle_upload` return: the plaintext's SHA-256 (hex); requires antd 0.17.0 or
+later, `nil` on older daemons.
 
 ### Pointers
 
@@ -458,14 +462,19 @@ addresses and DataMaps they return.
 
 | Function | Description |
 |----------|-------------|
-| `build_manifest(client, entries, opts \\ [])` | Build from a list of `Antd.ManifestEntryInput` (exactly one of `data_map` or `address`, optional `path` and `size`) — returns `Antd.BuiltManifest` (`manifest` bytes, `link` or `nil` when it would exceed 1,500 bytes, `entries` sorted by effective name). `opts`: `name:`, `torrent_info_hashes:`, `embed_roots:` (default `true`: embed each shrunk DataMap's resolved root when it is at most 64 KiB; `false` embeds DataMaps as given) |
+| `build_manifest(client, entries, opts \\ [])` | Build from a list of `Antd.ManifestEntryInput` (exactly one of `data_map` or `address`, optional `path`, `size` and `sha256`) — returns `Antd.BuiltManifest` (`manifest` bytes, `link` or `nil` when it would exceed 1,500 bytes, `entries` sorted by effective name). `opts`: `name:`, `torrent_info_hashes:`, `embed_roots:` (default `true`: embed each shrunk DataMap's resolved root when it is at most 64 KiB; `false` embeds DataMaps as given) |
 | `decode_manifest(client, manifest, opts \\ [])` | Decode `.ant` bytes — returns `Antd.DecodedManifest` (`source`, `name`, `torrent_info_hash_v1`/`_v2`, `entries`). `opts`: `resolve: true` fetches each entry's DataMap to report `exact_size` and confirm it is on the network (content chunks are not fetched) |
 | `decode_manifest_link(client, link, opts \\ [])` | Decode an `ant://` manifest link, a file link or a bare 64-hex address (a file link reads as one public entry with no path, `source: "file_link"`). `opts`: `resolve:` |
 
 Each entry comes back as an `Antd.ManifestEntryInfo`: `effective_name` (the
 path, or the content address when there is none), `path`, `size` (the
 creator's claim), `kind` (`"embedded"` or `"public"`), `content_address`,
-`data_map` (decode only), `exact_size` and `error`.
+`data_map` (decode only), `exact_size`, `error` and `sha256`.
+
+`sha256` is the plaintext's SHA-256 (hex). On an `Antd.ManifestEntryInput` it is
+optional: give it to record the hash for the entry; it is passed to the daemon as
+given, and left out when `nil` or `""`. On an `Antd.ManifestEntryInfo` it is the hash
+the manifest records, or `nil` when none. Requires antd 0.17.0 or later.
 
 - **Bytes.** The manifest is always a raw binary in this API. The REST client
   base64-encodes it on the wire; gRPC carries it as raw bytes.

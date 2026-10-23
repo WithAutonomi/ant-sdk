@@ -19,6 +19,8 @@ from mcp.types import ToolAnnotations
 
 from antd.exceptions import AntdError, BadRequestError
 
+from ._fields import sha256_of
+
 try:
     from antd import ManifestEntryInfo, ManifestEntryInput
     from antd._rest import AsyncRestClient as _AsyncRestClient
@@ -29,7 +31,7 @@ except ImportError:  # antd SDK without the manifest API
 else:
     MANIFESTS_AVAILABLE = hasattr(_AsyncRestClient, "build_manifest")
 
-_ENTRY_KEYS = ("path", "size", "data_map", "address")
+_ENTRY_KEYS = ("path", "size", "data_map", "address", "sha256")
 
 
 def _server():
@@ -51,21 +53,36 @@ def _entry_input(i: int, raw: object) -> "ManifestEntryInput":
         raise BadRequestError(
             f"entries[{i}]: unknown field {unknown[0]!r} (allowed: {', '.join(_ENTRY_KEYS)})"
         )
-    for key in ("path", "data_map", "address"):
+    for key in ("path", "data_map", "address", "sha256"):
         value = raw.get(key)
         if value is not None and not isinstance(value, str):
             raise BadRequestError(f"entries[{i}]: {key} must be a string")
-    return ManifestEntryInput(
-        data_map=raw.get("data_map"),
-        address=raw.get("address"),
-        path=raw.get("path"),
-        size=raw.get("size"),
-    )
+    kwargs = {}
+    if raw.get("sha256") is not None:
+        # Passed through as given (no hex, length or case check): the daemon
+        # validates it. Built as a keyword only when set, so an SDK without
+        # the field still accepts every other entry.
+        kwargs["sha256"] = raw["sha256"]
+    try:
+        return ManifestEntryInput(
+            data_map=raw.get("data_map"),
+            address=raw.get("address"),
+            path=raw.get("path"),
+            size=raw.get("size"),
+            **kwargs,
+        )
+    except TypeError:
+        if not kwargs:
+            raise
+        # The installed antd SDK predates the sha256 field.
+        raise BadRequestError(
+            f"entries[{i}]: sha256 needs an antd SDK that supports it (antd 0.17.0 or later)"
+        ) from None
 
 
 def _entry_dict(e: "ManifestEntryInfo") -> dict:
     """An entry as JSON. Sizes are plain numbers (never near 2^53); an unset
-    size or exact_size is null, never 0."""
+    size or exact_size is null, never 0, and so is an unset sha256."""
     return {
         "effective_name": e.effective_name,
         "path": e.path,
@@ -75,6 +92,7 @@ def _entry_dict(e: "ManifestEntryInfo") -> dict:
         "data_map": e.data_map,
         "exact_size": e.exact_size,
         "error": e.error,
+        "sha256": sha256_of(e),
     }
 
 
@@ -128,7 +146,11 @@ async def build_manifest(
             ``path`` (optional relative path such as ``notes/one.txt``; without
             one the entry is named by its content address);
             ``size`` (optional plaintext size in bytes to record; omit it
-            rather than passing 0 unless the file is empty).
+            rather than passing 0 unless the file is empty);
+            ``sha256`` (optional hex SHA-256 of the file's plaintext to
+            record; requires antd 0.17.0 or later. Passed to the daemon
+            as given, which rejects a malformed one with ``BAD_REQUEST``
+            naming ``entries[i]``).
         name: Optional suggested root directory name.
         torrent_info_hashes: Optional BitTorrent info-hashes (hex) to record.
         embed_roots: Default true: embed each file's root DataMap so readers
@@ -141,8 +163,9 @@ async def build_manifest(
         the recommended 1,500 bytes; share the file instead) and ``entries``
         (``effective_name``, ``path``, ``size``, ``kind`` "embedded" or
         "public", ``content_address``, ``data_map``, ``exact_size``,
-        ``error``), or error details. A bad entry returns ``BAD_REQUEST``
-        with a message naming ``entries[i]``; fix it and call again.
+        ``error``, ``sha256`` as hex or null), or error details. A bad entry
+        returns ``BAD_REQUEST`` with a message naming ``entries[i]``; fix it
+        and call again.
     """
     client, network = _server()._get_ctx(ctx)
     try:
@@ -206,8 +229,10 @@ async def decode_manifest(
         ``torrent_info_hash_v2`` (hex or null) and ``entries``
         (``effective_name``, ``path``, ``size`` as recorded by the creator,
         ``kind`` "embedded" or "public", ``content_address``, ``data_map``
-        for embedded entries, ``exact_size``, ``error``; unset values are
-        null, never 0), or error details. Invalid input returns
+        for embedded entries, ``exact_size``, ``error``, ``sha256`` (the
+        file's plaintext SHA-256 as hex, when the creator recorded one;
+        requires antd 0.17.0 or later); unset values are null, never 0),
+        or error details. Invalid input returns
         ``BAD_REQUEST``.
     """
     client, network = _server()._get_ctx(ctx)

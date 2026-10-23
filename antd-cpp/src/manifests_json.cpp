@@ -24,6 +24,15 @@ std::string manifest_str(const json& j, const char* key) {
     return it != j.end() && it->is_string() ? it->get<std::string>() : std::string{};
 }
 
+/// A string that is absent, `null`, mistyped or empty reads as std::nullopt.
+std::optional<std::string> manifest_opt_nonempty_str(const json& j, const char* key) {
+    const auto it = j.find(key);
+    if (it == j.end() || !it->is_string() || it->get_ref<const std::string&>().empty()) {
+        return std::nullopt;
+    }
+    return it->get<std::string>();
+}
+
 std::optional<std::string> manifest_opt_str(const json& j, const char* key) {
     const auto it = j.find(key);
     if (it == j.end() || !it->is_string()) return std::nullopt;
@@ -53,6 +62,7 @@ std::vector<ManifestEntryInfo> parse_manifest_entries(const json& j) {
             .data_map = manifest_str(e, "data_map"),
             .exact_size = manifest_opt_u64(e, "exact_size"),
             .error = manifest_str(e, "error"),
+            .sha256 = manifest_opt_nonempty_str(e, "sha256"),
         });
     }
     return out;
@@ -68,6 +78,7 @@ json manifest_build_body(const std::vector<ManifestEntryInput>& entries,
         json m = json::object();
         if (!e.path.empty()) m["path"] = e.path;
         if (e.size) m["size"] = *e.size;
+        if (e.sha256 && !e.sha256->empty()) m["sha256"] = *e.sha256;
         if (!e.data_map.empty()) {
             m["data_map"] = e.data_map;
         } else {

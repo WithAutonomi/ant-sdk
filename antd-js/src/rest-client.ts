@@ -41,6 +41,14 @@ import {
   type ManifestEntryInput,
 } from "./manifests.js";
 
+/**
+ * A result's `sha256` (antd 0.17.0 or later): absent, `null` or `""` reads as
+ * `null`. Passed through exactly as the daemon sent it.
+ */
+function optionalSha256(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
 /** Media type that opts the stream endpoints into NDJSON progress framing. */
 const NDJSON_CONTENT_TYPE = "application/x-ndjson";
 
@@ -421,11 +429,13 @@ export class RestClient {
       address: string;
       chunks_stored?: number;
       payment_mode_used?: string;
+      sha256?: string | null;
     }>("/v1/data/public", body);
     return {
       address: j.address,
       chunksStored: j.chunks_stored ?? 0,
       paymentModeUsed: j.payment_mode_used ?? "",
+      sha256: optionalSha256(j.sha256),
     };
   }
 
@@ -446,11 +456,13 @@ export class RestClient {
       data_map: string;
       chunks_stored?: number;
       payment_mode_used?: string;
+      sha256?: string | null;
     }>("/v1/data", body);
     return {
       dataMap: j.data_map,
       chunksStored: j.chunks_stored ?? 0,
       paymentModeUsed: j.payment_mode_used ?? "",
+      sha256: optionalSha256(j.sha256),
     };
   }
 
@@ -591,6 +603,7 @@ export class RestClient {
       gas_cost_wei: string;
       chunks_stored: number;
       payment_mode_used: string;
+      sha256?: string | null;
     }>("/v1/files/public", body);
     return {
       address: j.address,
@@ -598,6 +611,7 @@ export class RestClient {
       gasCostWei: j.gas_cost_wei,
       chunksStored: j.chunks_stored,
       paymentModeUsed: j.payment_mode_used,
+      sha256: optionalSha256(j.sha256),
     };
   }
 
@@ -622,6 +636,7 @@ export class RestClient {
       gas_cost_wei: string;
       chunks_stored: number;
       payment_mode_used: string;
+      sha256?: string | null;
     }>("/v1/files", body);
     return {
       dataMap: j.data_map,
@@ -629,6 +644,7 @@ export class RestClient {
       gasCostWei: j.gas_cost_wei,
       chunksStored: j.chunks_stored,
       paymentModeUsed: j.payment_mode_used,
+      sha256: optionalSha256(j.sha256),
     };
   }
 
@@ -902,12 +918,14 @@ export class RestClient {
       chunks_stored: number;
       data_map?: string;
       data_map_address?: string;
+      sha256?: string | null;
     }>("/v1/upload/finalize", { upload_id: uploadId, tx_hashes: txHashes });
     return {
       address: j.address ?? "",
       chunksStored: j.chunks_stored,
       dataMap: j.data_map ?? "",
       dataMapAddress: j.data_map_address ?? "",
+      sha256: optionalSha256(j.sha256),
     };
   }
 
@@ -931,6 +949,7 @@ export class RestClient {
       chunks_stored: number;
       data_map?: string;
       data_map_address?: string;
+      sha256?: string | null;
     }>("/v1/upload/finalize", {
       upload_id: uploadId,
       winner_pool_hash: winnerPoolHash,
@@ -941,6 +960,7 @@ export class RestClient {
       chunksStored: j.chunks_stored,
       dataMap: j.data_map ?? "",
       dataMapAddress: j.data_map_address ?? "",
+      sha256: optionalSha256(j.sha256),
     };
   }
 

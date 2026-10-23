@@ -160,6 +160,7 @@ DataPutPublicResult GrpcClient::data_put_public(const std::vector<uint8_t>& data
         .address = resp.address(),
         .chunks_stored = resp.chunks_stored(),
         .payment_mode_used = resp.payment_mode_used(),
+        .sha256 = detail::none_if_empty(resp.sha256()),
     };
 }
 
@@ -185,6 +186,7 @@ DataPutResult GrpcClient::data_put(const std::vector<uint8_t>& data,
         .data_map = resp.data_map(),
         .chunks_stored = resp.chunks_stored(),
         .payment_mode_used = resp.payment_mode_used(),
+        .sha256 = detail::none_if_empty(resp.sha256()),
     };
 }
 
@@ -398,6 +400,7 @@ FilePutResult GrpcClient::file_put(std::string_view path, PaymentMode payment_mo
         .gas_cost_wei = resp.gas_cost_wei(),
         .chunks_stored = resp.chunks_stored(),
         .payment_mode_used = resp.payment_mode_used(),
+        .sha256 = detail::none_if_empty(resp.sha256()),
     };
 }
 
@@ -424,6 +427,7 @@ FilePutPublicResult GrpcClient::file_put_public(std::string_view path,
         .gas_cost_wei = resp.gas_cost_wei(),
         .chunks_stored = resp.chunks_stored(),
         .payment_mode_used = resp.payment_mode_used(),
+        .sha256 = detail::none_if_empty(resp.sha256()),
     };
 }
 
@@ -511,6 +515,7 @@ FinalizeUploadResult map_finalize_upload_response(const antd::v1::FinalizeUpload
         .address = resp.address(),
         .data_map_address = resp.data_map_address(),
         .chunks_stored = static_cast<int64_t>(resp.chunks_stored()),
+        .sha256 = detail::none_if_empty(resp.sha256()),
     };
 }
 

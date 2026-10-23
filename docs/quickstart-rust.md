@@ -191,6 +191,8 @@ for e in &decoded.entries {
 
 `build_manifest(&entries)` uses the default options. `ManifestEntryInput::embedded(hex)` makes an embedded entry; `BuildManifestOptions` has `keep_shrunk_data_maps` (default `false`: roots are embedded). Sizes are `Option<u64>`. On `GrpcClient` too.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `sha256: Option<String>` (`None` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `ManifestEntryInput::with_sha256(hex)` records one, and `ManifestEntryInfo::sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-rust/examples/10-manifests.rs`. Its two uploads pay; the manifest calls do not.
 
 ```bash

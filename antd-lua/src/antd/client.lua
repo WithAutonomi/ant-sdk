@@ -249,6 +249,14 @@ local function str(t, key)
     return ""
 end
 
+--- Optional string field: the string when it is a non-empty string, else nil
+-- (absent, JSON null and "" all mean unset).
+local function opt_str(t, key)
+    local v = t[key]
+    if type(v) == "string" and v ~= "" then return v end
+    return nil
+end
+
 --- Safe number extraction from a table.
 local function num(t, key)
     local v = t[key]
@@ -352,7 +360,8 @@ function Client:data_put_public(data, opts)
     return models.new_data_put_public_result(
         str(j, "address"),
         num(j, "chunks_stored"),
-        str(j, "payment_mode_used")
+        str(j, "payment_mode_used"),
+        opt_str(j, "sha256")
     ), nil
 end
 
@@ -378,7 +387,8 @@ function Client:data_put(data, opts)
     return models.new_data_put_result(
         str(j, "data_map"),
         num(j, "chunks_stored"),
-        str(j, "payment_mode_used")
+        str(j, "payment_mode_used"),
+        opt_str(j, "sha256")
     ), nil
 end
 
@@ -510,7 +520,8 @@ function Client:file_put_public(path, opts)
         str(j, "storage_cost_atto"),
         str(j, "gas_cost_wei"),
         num(j, "chunks_stored"),
-        str(j, "payment_mode_used")
+        str(j, "payment_mode_used"),
+        opt_str(j, "sha256")
     ), nil
 end
 
@@ -540,7 +551,8 @@ function Client:file_put(path, opts)
         str(j, "storage_cost_atto"),
         str(j, "gas_cost_wei"),
         num(j, "chunks_stored"),
-        str(j, "payment_mode_used")
+        str(j, "payment_mode_used"),
+        opt_str(j, "sha256")
     ), nil
 end
 
@@ -629,6 +641,7 @@ function Client:finalize_upload(upload_id, tx_hashes)
         chunks_stored = num(j, "chunks_stored"),
         data_map = str(j, "data_map"),
         data_map_address = str(j, "data_map_address"),
+        sha256 = opt_str(j, "sha256"),
     }), nil
 end
 
@@ -644,6 +657,7 @@ function Client:finalize_merkle_upload(upload_id, winner_pool_hash, store_data_m
         chunks_stored = num(j, "chunks_stored"),
         data_map = str(j, "data_map"),
         data_map_address = str(j, "data_map_address"),
+        sha256 = opt_str(j, "sha256"),
     }), nil
 end
 
@@ -663,14 +677,6 @@ end
 -- 2^64-1, which no Lua number holds exactly. A malformed counter in a
 -- response is an `internal` error, never a 0. Unset values (a REST JSON
 -- null) read as nil.
-
---- Optional string field: the string when it is a non-empty string, else nil
--- (absent, JSON null and "" all mean unset).
-local function opt_str(t, key)
-    local v = t[key]
-    if type(v) == "string" and v ~= "" then return v end
-    return nil
-end
 
 --- Optional table field: the table when it is one, else nil (absent or JSON
 -- null).

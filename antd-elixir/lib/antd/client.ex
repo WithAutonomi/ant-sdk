@@ -152,7 +152,8 @@ defmodule Antd.Client do
          %Antd.DataPutResult{
            data_map: body["data_map"] || "",
            chunks_stored: body["chunks_stored"] || 0,
-           payment_mode_used: body["payment_mode_used"] || ""
+           payment_mode_used: body["payment_mode_used"] || "",
+           sha256: presence(body["sha256"])
          }}
 
       {:error, _} = err ->
@@ -252,7 +253,8 @@ defmodule Antd.Client do
          %Antd.DataPutPublicResult{
            address: body["address"] || "",
            chunks_stored: body["chunks_stored"] || 0,
-           payment_mode_used: body["payment_mode_used"] || ""
+           payment_mode_used: body["payment_mode_used"] || "",
+           sha256: presence(body["sha256"])
          }}
 
       {:error, _} = err ->
@@ -535,7 +537,8 @@ defmodule Antd.Client do
       storage_cost_atto: Map.get(body, "storage_cost_atto", ""),
       gas_cost_wei: Map.get(body, "gas_cost_wei", ""),
       chunks_stored: Map.get(body, "chunks_stored", 0),
-      payment_mode_used: Map.get(body, "payment_mode_used", "")
+      payment_mode_used: Map.get(body, "payment_mode_used", ""),
+      sha256: presence(body["sha256"])
     }
   end
 
@@ -545,7 +548,8 @@ defmodule Antd.Client do
       storage_cost_atto: Map.get(body, "storage_cost_atto", ""),
       gas_cost_wei: Map.get(body, "gas_cost_wei", ""),
       chunks_stored: Map.get(body, "chunks_stored", 0),
-      payment_mode_used: Map.get(body, "payment_mode_used", "")
+      payment_mode_used: Map.get(body, "payment_mode_used", ""),
+      sha256: presence(body["sha256"])
     }
   end
 
@@ -1262,9 +1266,15 @@ defmodule Antd.Client do
       address: body["address"] || "",
       chunks_stored: body["chunks_stored"] || 0,
       data_map: body["data_map"] || "",
-      data_map_address: body["data_map_address"] || ""
+      data_map_address: body["data_map_address"] || "",
+      sha256: presence(body["sha256"])
     }
   end
+
+  # A non-empty string, or `nil`: the plaintext SHA-256 of an upload result is
+  # absent from antd < 0.17.0, and an empty string is never a hash.
+  defp presence(value) when is_binary(value) and value != "", do: value
+  defp presence(_), do: nil
 
   defp unwrap!({:ok, result}), do: result
   defp unwrap!(:ok), do: :ok

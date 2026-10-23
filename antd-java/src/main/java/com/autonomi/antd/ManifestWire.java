@@ -114,6 +114,7 @@ final class ManifestWire {
             Map<String, Object> m = new LinkedHashMap<>();
             if (isSet(e.path())) m.put("path", e.path());
             if (e.size() != null) m.put("size", e.size());
+            if (isSet(e.sha256())) m.put("sha256", e.sha256());
             if (isSet(e.dataMap())) {
                 m.put("data_map", e.dataMap());
             } else {
@@ -175,7 +176,8 @@ final class ManifestWire {
                     str(m, "content_address"),
                     optStr(m, "data_map"),
                     optSize(m, "exact_size"),
-                    optStr(m, "error")));
+                    optStr(m, "error"),
+                    optStr(m, "sha256")));
         }
         return Collections.unmodifiableList(out);
     }
@@ -202,6 +204,7 @@ final class ManifestWire {
             Manifests.ManifestEntryInput.Builder in = Manifests.ManifestEntryInput.newBuilder();
             if (isSet(e.path())) in.setPath(e.path());
             if (e.size() != null) in.setSize(e.size());
+            if (isSet(e.sha256())) in.setSha256(e.sha256());
             if (isSet(e.dataMap())) {
                 in.setDataMap(e.dataMap());
             } else {
@@ -253,7 +256,8 @@ final class ManifestWire {
                     e.getContentAddress(),
                     emptyToNull(e.getDataMap()),
                     e.hasExactSize() ? Long.valueOf(e.getExactSize()) : null,
-                    emptyToNull(e.getError())));
+                    emptyToNull(e.getError()),
+                    emptyToNull(e.getSha256())));
         }
         return Collections.unmodifiableList(out);
     }
@@ -278,7 +282,7 @@ final class ManifestWire {
         return m.get(key) instanceof String s && !s.isEmpty() ? s : null;
     }
 
-    private static String emptyToNull(String s) {
+    static String emptyToNull(String s) {
         return s == null || s.isEmpty() ? null : s;
     }
 

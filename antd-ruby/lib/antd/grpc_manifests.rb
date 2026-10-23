@@ -103,6 +103,7 @@ module Antd
       else
         attrs[:data_map] = e.data_map
       end
+      attrs[:sha256] = e.sha256 unless e.sha256.nil? || e.sha256.empty?
       Antd::V1::ManifestEntryInput.new(**attrs)
     end
 
@@ -116,7 +117,8 @@ module Antd
         content_address: e.content_address,
         data_map: manifest_pb_string(e.data_map),
         exact_size: e.has_exact_size? ? e.exact_size : nil,
-        error: manifest_pb_string(e.error)
+        error: manifest_pb_string(e.error),
+        sha256: manifest_pb_string(e.sha256)
       )
     end
 

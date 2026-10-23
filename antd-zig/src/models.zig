@@ -65,9 +65,14 @@ pub const DataPutResult = struct {
     chunks_stored: u64 = 0,
     payment_mode_used: []const u8 = "",
 
+    /// The plaintext's SHA-256 (lowercase hex, 64 characters). `null` when
+    /// the daemon sent none (antd before 0.17.0) or sent an empty string.
+    sha256: ?[]const u8 = null,
+
     pub fn deinit(self: DataPutResult, allocator: Allocator) void {
         allocator.free(self.data_map);
         allocator.free(self.payment_mode_used);
+        if (self.sha256) |v| allocator.free(v);
     }
 };
 
@@ -78,9 +83,14 @@ pub const DataPutPublicResult = struct {
     chunks_stored: u64 = 0,
     payment_mode_used: []const u8 = "",
 
+    /// The plaintext's SHA-256 (lowercase hex, 64 characters). `null` when
+    /// the daemon sent none (antd before 0.17.0) or sent an empty string.
+    sha256: ?[]const u8 = null,
+
     pub fn deinit(self: DataPutPublicResult, allocator: Allocator) void {
         allocator.free(self.address);
         allocator.free(self.payment_mode_used);
+        if (self.sha256) |v| allocator.free(v);
     }
 };
 
@@ -93,11 +103,16 @@ pub const FilePutResult = struct {
     chunks_stored: u64,
     payment_mode_used: []const u8,
 
+    /// The plaintext's SHA-256 (lowercase hex, 64 characters). `null` when
+    /// the daemon sent none (antd before 0.17.0) or sent an empty string.
+    sha256: ?[]const u8 = null,
+
     pub fn deinit(self: FilePutResult, allocator: Allocator) void {
         allocator.free(self.data_map);
         allocator.free(self.storage_cost_atto);
         allocator.free(self.gas_cost_wei);
         allocator.free(self.payment_mode_used);
+        if (self.sha256) |v| allocator.free(v);
     }
 };
 
@@ -110,11 +125,16 @@ pub const FilePutPublicResult = struct {
     chunks_stored: u64,
     payment_mode_used: []const u8,
 
+    /// The plaintext's SHA-256 (lowercase hex, 64 characters). `null` when
+    /// the daemon sent none (antd before 0.17.0) or sent an empty string.
+    sha256: ?[]const u8 = null,
+
     pub fn deinit(self: FilePutPublicResult, allocator: Allocator) void {
         allocator.free(self.address);
         allocator.free(self.storage_cost_atto);
         allocator.free(self.gas_cost_wei);
         allocator.free(self.payment_mode_used);
+        if (self.sha256) |v| allocator.free(v);
     }
 };
 
@@ -206,10 +226,15 @@ pub const FinalizeUploadResult = struct {
     data_map_address: []const u8 = "",
     chunks_stored: u64 = 0,
 
+    /// The plaintext's SHA-256 (lowercase hex, 64 characters). `null` when
+    /// the daemon sent none (antd before 0.17.0) or sent an empty string.
+    sha256: ?[]const u8 = null,
+
     pub fn deinit(self: FinalizeUploadResult, allocator: Allocator) void {
         allocator.free(self.data_map);
         allocator.free(self.address);
         allocator.free(self.data_map_address);
+        if (self.sha256) |v| allocator.free(v);
     }
 };
 

@@ -186,6 +186,8 @@ end
 
 `client:decode_manifest(bytes, resolve)` takes raw `.ant` bytes. Use `data_map = ...` instead of `address = ...` for an embedded entry; `opts` may set `embed_roots = false`. An unset size is `nil`, never `0`.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `sha256` (`nil` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: an entry table takes `sha256 = hex`, and entries read back carry `sha256`. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-lua/examples/09-manifests.lua`. Its two uploads pay; the manifest calls do not.
 
 ```bash

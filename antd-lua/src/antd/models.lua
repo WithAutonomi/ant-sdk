@@ -4,6 +4,13 @@
 
 local M = {}
 
+--- An optional SHA-256 hex string: the string when it is a non-empty string,
+-- else nil (absent, JSON null and "" all mean none; never "").
+local function opt_sha256(v)
+    if type(v) == "string" and v ~= "" then return v end
+    return nil
+end
+
 --- Payment-batching strategy for uploads.
 --
 -- * `AUTO`   — server picks (merkle for 64+ chunks, single otherwise).
@@ -59,12 +66,14 @@ end
 -- @param data_map string hex-encoded caller-held DataMap
 -- @param chunks_stored number number of chunks stored on the network
 -- @param payment_mode_used string "auto", "merkle", or "single"
+-- @param sha256 string|nil the plaintext's SHA-256 (hex); nil on antd < 0.17.0
 -- @return table
-function M.new_data_put_result(data_map, chunks_stored, payment_mode_used)
+function M.new_data_put_result(data_map, chunks_stored, payment_mode_used, sha256)
     return {
         data_map = data_map,
         chunks_stored = chunks_stored or 0,
         payment_mode_used = payment_mode_used or "",
+        sha256 = opt_sha256(sha256),
     }
 end
 
@@ -74,40 +83,47 @@ end
 -- @param address string hex on-network DataMap address
 -- @param chunks_stored number number of chunks stored on the network
 -- @param payment_mode_used string "auto", "merkle", or "single"
+-- @param sha256 string|nil the plaintext's SHA-256 (hex); nil on antd < 0.17.0
 -- @return table
-function M.new_data_put_public_result(address, chunks_stored, payment_mode_used)
+function M.new_data_put_public_result(address, chunks_stored, payment_mode_used, sha256)
     return {
         address = address,
         chunks_stored = chunks_stored or 0,
         payment_mode_used = payment_mode_used or "",
+        sha256 = opt_sha256(sha256),
     }
 end
 
 --- Create a FilePutResult table.
 -- Result of a private file upload. The DataMap is returned to the caller;
 -- it is NOT stored on-network.
+-- @param sha256 string|nil the plaintext's SHA-256 (hex); nil on antd < 0.17.0
 -- @return table
-function M.new_file_put_result(data_map, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used)
+function M.new_file_put_result(data_map, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used, sha256)
     return {
         data_map = data_map,
         storage_cost_atto = storage_cost_atto,
         gas_cost_wei = gas_cost_wei,
         chunks_stored = chunks_stored,
         payment_mode_used = payment_mode_used,
+        sha256 = opt_sha256(sha256),
     }
 end
 
 --- Create a FilePutPublicResult table.
 -- Result of a public file upload. The DataMap is stored on-network as an
 -- extra chunk; `address` is the shareable retrieval handle.
+-- @param sha256 string|nil the plaintext's SHA-256 (hex); nil on antd < 0.17.0
 -- @return table
-function M.new_file_put_public_result(address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used)
+function M.new_file_put_public_result(address, storage_cost_atto, gas_cost_wei, chunks_stored,
+                                      payment_mode_used, sha256)
     return {
         address = address,
         storage_cost_atto = storage_cost_atto,
         gas_cost_wei = gas_cost_wei,
         chunks_stored = chunks_stored,
         payment_mode_used = payment_mode_used,
+        sha256 = opt_sha256(sha256),
     }
 end
 
@@ -157,6 +173,7 @@ function M.new_finalize_upload_result(opts)
         chunks_stored = opts.chunks_stored or 0,
         data_map = opts.data_map or "",
         data_map_address = opts.data_map_address or "",
+        sha256 = opt_sha256(opts.sha256),
     }
 end
 

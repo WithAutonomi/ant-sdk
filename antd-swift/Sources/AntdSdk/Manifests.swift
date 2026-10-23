@@ -35,12 +35,19 @@ public struct ManifestEntryInput: Sendable, Equatable {
     /// A public file's DataMap address (hex, 32 bytes), as
     /// ``AntdClientProtocol/dataPutPublic(_:paymentMode:)`` returns it.
     public var address: String?
+    /// The plaintext's SHA-256 to record, hex, as given (the creator's claim;
+    /// for example the ``DataPutResult/sha256`` an upload returned). Passed
+    /// through unchanged: the daemon checks it, and refuses a malformed one
+    /// with a ``BadRequestError``. `nil` (or empty): none is recorded.
+    /// Requires antd 0.17.0 or later.
+    public var sha256: String?
 
-    public init(path: String? = nil, size: UInt64? = nil, dataMap: String? = nil, address: String? = nil) {
+    public init(path: String? = nil, size: UInt64? = nil, dataMap: String? = nil, address: String? = nil, sha256: String? = nil) {
         self.path = path
         self.size = size
         self.dataMap = dataMap
         self.address = address
+        self.sha256 = sha256
     }
 }
 
@@ -90,6 +97,10 @@ public struct ManifestEntryInfo: Sendable, Equatable {
     /// Why a resolving decode failed for this entry; `nil` when it did not.
     /// One entry's failure is reported here, not as a failed call.
     public let error: String?
+    /// The plaintext's SHA-256 recorded in the manifest, hex: the creator's
+    /// claim, not verified. `nil` when none was recorded, and on daemons
+    /// older than antd 0.17.0. Requires antd 0.17.0 or later.
+    public let sha256: String?
 
     public init(
         effectiveName: String,
@@ -99,7 +110,8 @@ public struct ManifestEntryInfo: Sendable, Equatable {
         contentAddress: String,
         dataMap: String? = nil,
         exactSize: UInt64? = nil,
-        error: String? = nil
+        error: String? = nil,
+        sha256: String? = nil
     ) {
         self.effectiveName = effectiveName
         self.path = path
@@ -109,6 +121,7 @@ public struct ManifestEntryInfo: Sendable, Equatable {
         self.dataMap = dataMap
         self.exactSize = exactSize
         self.error = error
+        self.sha256 = sha256
     }
 }
 

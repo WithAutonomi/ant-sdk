@@ -219,6 +219,24 @@ if(ANTD_BUILD_TESTS)
     endif()
     add_test(NAME antd_live_manifest_tests COMMAND antd_live_manifest_tests)
 
+    # sha256 on upload results and manifest entries (antd 0.17.0) over REST
+    # against a stub daemon.
+    add_executable(antd_sha256_tests tests/test_sha256.cpp)
+    target_link_libraries(antd_sha256_tests PRIVATE antd doctest::doctest)
+    add_test(NAME antd_sha256_tests COMMAND antd_sha256_tests)
+
+    # Live sha256 check against a daemon with the fixtures uploaded. Passes
+    # without running anything unless ANTD_TEST_URL and ANTD_TEST_SHA_LINK (and,
+    # in a gRPC build, ANTD_TEST_GRPC) are set. Makes ONE paid public upload
+    # per transport.
+    add_executable(antd_live_sha256_tests tests/live_sha256.cpp)
+    target_link_libraries(antd_live_sha256_tests PRIVATE antd doctest::doctest)
+    if(ANTD_BUILD_GRPC)
+        target_link_libraries(antd_live_sha256_tests PRIVATE antd_grpc)
+        target_compile_definitions(antd_live_sha256_tests PRIVATE ANTD_LIVE_GRPC=1)
+    endif()
+    add_test(NAME antd_live_sha256_tests COMMAND antd_live_sha256_tests)
+
     # V2-284 external-signer + V2-286 WalletService wire-mapping tests —
     # gated on ANTD_BUILD_GRPC=ON since they spin up a real grpc++ server
     # and link against generated proto + service stubs from antd/proto/.
@@ -268,5 +286,16 @@ if(ANTD_BUILD_TESTS)
             ${ANTD_PROTO_GEN_DIR}
         )
         add_test(NAME antd_grpc_pointer_tests COMMAND antd_grpc_pointer_tests)
+
+        # sha256 on upload results and manifest entries (antd 0.17.0).
+        add_executable(antd_grpc_sha256_tests tests/test_grpc_sha256.cpp)
+        target_link_libraries(antd_grpc_sha256_tests
+            PRIVATE antd_grpc doctest::doctest
+        )
+        target_include_directories(antd_grpc_sha256_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${ANTD_PROTO_GEN_DIR}
+        )
+        add_test(NAME antd_grpc_sha256_tests COMMAND antd_grpc_sha256_tests)
     endif()
 endif()
