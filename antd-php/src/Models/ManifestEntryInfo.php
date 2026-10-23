@@ -37,5 +37,10 @@ readonly class ManifestEntryInfo
         public ?int $exactSize,
         /** Why a resolving decode failed for this entry; null when it did not. */
         public ?string $error,
+        /**
+         * The plaintext's SHA-256 (hex) the manifest records; null when none
+         * is recorded. Requires antd 0.17.0 or later.
+         */
+        public ?string $sha256 = null,
     ) {}
 }
