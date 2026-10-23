@@ -119,10 +119,15 @@ class DataPutResult {
   /// Payment mode actually used by the daemon: `auto`, `merkle`, or `single`.
   final String paymentModeUsed;
 
+  /// The plaintext's SHA-256, lowercase hex (64 characters). `null` on a
+  /// daemon older than antd 0.17.0, which does not report it.
+  final String? sha256;
+
   const DataPutResult({
     required this.dataMap,
     this.chunksStored = 0,
     this.paymentModeUsed = '',
+    this.sha256,
   });
 
   factory DataPutResult.fromJson(Map<String, dynamic> json) {
@@ -130,12 +135,13 @@ class DataPutResult {
       dataMap: json['data_map'] as String? ?? '',
       chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
       paymentModeUsed: json['payment_mode_used'] as String? ?? '',
+      sha256: _optionalString(json['sha256']),
     );
   }
 
   @override
   String toString() =>
-      'DataPutResult(dataMap: $dataMap, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
+      'DataPutResult(dataMap: $dataMap, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed, sha256: $sha256)';
 }
 
 /// Result of a public data put ([AntdClient.dataPutPublic]).
@@ -152,10 +158,15 @@ class DataPutPublicResult {
   /// Payment mode actually used by the daemon: `auto`, `merkle`, or `single`.
   final String paymentModeUsed;
 
+  /// The plaintext's SHA-256, lowercase hex (64 characters). `null` on a
+  /// daemon older than antd 0.17.0, which does not report it.
+  final String? sha256;
+
   const DataPutPublicResult({
     required this.address,
     this.chunksStored = 0,
     this.paymentModeUsed = '',
+    this.sha256,
   });
 
   factory DataPutPublicResult.fromJson(Map<String, dynamic> json) {
@@ -163,12 +174,13 @@ class DataPutPublicResult {
       address: json['address'] as String? ?? '',
       chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
       paymentModeUsed: json['payment_mode_used'] as String? ?? '',
+      sha256: _optionalString(json['sha256']),
     );
   }
 
   @override
   String toString() =>
-      'DataPutPublicResult(address: $address, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
+      'DataPutPublicResult(address: $address, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed, sha256: $sha256)';
 }
 
 /// Result of a private file upload ([AntdClient.filePut]).
@@ -190,12 +202,17 @@ class FilePutResult {
   /// Which payment mode was actually used: `auto`, `merkle`, or `single`.
   final String paymentModeUsed;
 
+  /// The plaintext's SHA-256, lowercase hex (64 characters). `null` on a
+  /// daemon older than antd 0.17.0, which does not report it.
+  final String? sha256;
+
   const FilePutResult({
     required this.dataMap,
     required this.storageCostAtto,
     required this.gasCostWei,
     required this.chunksStored,
     required this.paymentModeUsed,
+    this.sha256,
   });
 
   factory FilePutResult.fromJson(Map<String, dynamic> json) {
@@ -205,12 +222,13 @@ class FilePutResult {
       gasCostWei: json['gas_cost_wei'] as String? ?? '',
       chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
       paymentModeUsed: json['payment_mode_used'] as String? ?? '',
+      sha256: _optionalString(json['sha256']),
     );
   }
 
   @override
   String toString() =>
-      'FilePutResult(dataMap: $dataMap, storageCostAtto: $storageCostAtto, gasCostWei: $gasCostWei, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
+      'FilePutResult(dataMap: $dataMap, storageCostAtto: $storageCostAtto, gasCostWei: $gasCostWei, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed, sha256: $sha256)';
 }
 
 /// Result of a public file upload ([AntdClient.filePutPublic]).
@@ -233,12 +251,17 @@ class FilePutPublicResult {
   /// Which payment mode was actually used: `auto`, `merkle`, or `single`.
   final String paymentModeUsed;
 
+  /// The plaintext's SHA-256, lowercase hex (64 characters). `null` on a
+  /// daemon older than antd 0.17.0, which does not report it.
+  final String? sha256;
+
   const FilePutPublicResult({
     required this.address,
     required this.storageCostAtto,
     required this.gasCostWei,
     required this.chunksStored,
     required this.paymentModeUsed,
+    this.sha256,
   });
 
   factory FilePutPublicResult.fromJson(Map<String, dynamic> json) {
@@ -248,12 +271,13 @@ class FilePutPublicResult {
       gasCostWei: json['gas_cost_wei'] as String? ?? '',
       chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
       paymentModeUsed: json['payment_mode_used'] as String? ?? '',
+      sha256: _optionalString(json['sha256']),
     );
   }
 
   @override
   String toString() =>
-      'FilePutPublicResult(address: $address, storageCostAtto: $storageCostAtto, gasCostWei: $gasCostWei, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
+      'FilePutPublicResult(address: $address, storageCostAtto: $storageCostAtto, gasCostWei: $gasCostWei, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed, sha256: $sha256)';
 }
 
 /// WalletAddress is the wallet address response.
@@ -466,11 +490,16 @@ class FinalizeUploadResult {
   /// external-signer payment batch). Empty for private uploads.
   final String dataMapAddress;
 
+  /// The plaintext's SHA-256, lowercase hex (64 characters). `null` on a
+  /// daemon older than antd 0.17.0, which does not report it.
+  final String? sha256;
+
   const FinalizeUploadResult({
     required this.address,
     required this.chunksStored,
     this.dataMap = '',
     this.dataMapAddress = '',
+    this.sha256,
   });
 
   factory FinalizeUploadResult.fromJson(Map<String, dynamic> json) {
@@ -479,12 +508,13 @@ class FinalizeUploadResult {
       chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
       dataMap: json['data_map'] as String? ?? '',
       dataMapAddress: json['data_map_address'] as String? ?? '',
+      sha256: _optionalString(json['sha256']),
     );
   }
 
   @override
   String toString() =>
-      'FinalizeUploadResult(address: $address, chunksStored: $chunksStored, dataMap: $dataMap, dataMapAddress: $dataMapAddress)';
+      'FinalizeUploadResult(address: $address, chunksStored: $chunksStored, dataMap: $dataMap, dataMapAddress: $dataMapAddress, sha256: $sha256)';
 }
 
 /// Result of preparing a single-chunk external-signer publish via

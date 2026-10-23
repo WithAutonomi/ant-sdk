@@ -200,6 +200,10 @@ a shareable address.
 | `fileGetPublic(address, destPath)` | Download a public file by address |
 | `fileCost(path, {isPublic, paymentMode})` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+### Upload results
+
+`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and `FinalizeUploadResult` (from `finalizeUpload` and `finalizeMerkleUpload`) have a `sha256` field: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none on older daemons. It is a `String?`: `null` when the daemon does not report it (a missing REST key, or an empty gRPC string), never `""`.
+
 ### Pointers
 
 A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be updated by the owner, who can also hand the pointer over to another pointer for good. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. Both `AntdClient` and `GrpcAntdClient` have these methods.
@@ -255,9 +259,11 @@ A manifest (ADR-0006) is a `.ant` file that names a set of files: each entry has
 | `decodeManifest(bytes, {resolve})` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrentInfoHashV1` / `V2`, `entries`) |
 | `decodeManifestLink(link, {resolve})` | Decode an `ant://manifest/` link, a file link or a bare 64-hex address (`source: "file_link"`: one public entry with no path) |
 
-Each `ManifestEntryInput` sets exactly one of `dataMap` (hex, as the upload methods return it) or `address` (hex); an entry with both or neither throws `ArgumentError` before anything is sent. The daemon checks the rest, including the portable path rules, and reports every bad entry by index (`entries[i]: ...`) in a `BadRequestError` (gRPC `INVALID_ARGUMENT`).
+Each `ManifestEntryInput` sets exactly one of `dataMap` (hex, as the upload methods return it) or `address` (hex); an entry with both or neither throws `BadRequestError` before anything is sent. The daemon checks the rest, including the portable path rules, and reports every bad entry by index (`entries[i]: ...`) in a `BadRequestError` (gRPC `INVALID_ARGUMENT`).
 
-Each `ManifestEntryInfo` has `effectiveName` (the path, or the content address when there is none), `path`, `size` (the creator's claim), `kind` (`"embedded"` or `"public"`), `contentAddress`, `dataMap` (decode only, `null` for public entries), `exactSize` and `error`. Sizes are `int?`: unset is `null`, never 0. With `resolve: true` the daemon fetches each entry's DataMap to report `exactSize` and confirm it is on the network (content chunks are not fetched); an entry that fails to resolve carries the reason in `error` instead of failing the call. Resolving and `embedRoots` read from the network, so those calls can time out, and retrying them is safe.
+A `ManifestEntryInput` can also set `sha256`: the plaintext's SHA-256 (hex), which the manifest records as the creator's claim; requires antd 0.17.0 or later. It is sent as given, only when set and non-empty, and the daemon rejects a malformed one with a `BadRequestError`. `ManifestEntryInfo.sha256` returns it lowercase (requires antd 0.17.0 or later), or `null` when none was recorded.
+
+Each `ManifestEntryInfo` has `effectiveName` (the path, or the content address when there is none), `path`, `size` (the creator's claim), `kind` (`"embedded"` or `"public"`), `contentAddress`, `dataMap` (decode only, `null` for public entries), `exactSize`, `error` and `sha256`. Sizes are `int?`: unset is `null`, never 0. With `resolve: true` the daemon fetches each entry's DataMap to report `exactSize` and confirm it is on the network (content chunks are not fetched); an entry that fails to resolve carries the reason in `error` instead of failing the call. Resolving and `embedRoots` read from the network, so those calls can time out, and retrying them is safe.
 
 The `.ant` bytes are always raw `Uint8List`s in this API; REST carries them as base64 and gRPC as bytes, and the clients convert. grpc-dart has no message size limit, so manifests up to the format's 64 MiB need no channel settings.
 

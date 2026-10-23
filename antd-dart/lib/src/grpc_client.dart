@@ -283,7 +283,7 @@ class GrpcAntdClient {
         ..data = data
         ..paymentMode = paymentMode.wire;
       final resp = await _dataStub.put(req);
-      return DataPutResult(dataMap: resp.dataMap, chunksStored: resp.chunksStored.toInt(), paymentModeUsed: resp.paymentModeUsed);
+      return DataPutResult(dataMap: resp.dataMap, chunksStored: resp.chunksStored.toInt(), paymentModeUsed: resp.paymentModeUsed, sha256: resp.sha256.isEmpty ? null : resp.sha256);
     } on GrpcError catch (e) {
       _handleError(e);
     }
@@ -313,7 +313,7 @@ class GrpcAntdClient {
         ..data = data
         ..paymentMode = paymentMode.wire;
       final resp = await _dataStub.putPublic(req);
-      return DataPutPublicResult(address: resp.address, chunksStored: resp.chunksStored.toInt(), paymentModeUsed: resp.paymentModeUsed);
+      return DataPutPublicResult(address: resp.address, chunksStored: resp.chunksStored.toInt(), paymentModeUsed: resp.paymentModeUsed, sha256: resp.sha256.isEmpty ? null : resp.sha256);
     } on GrpcError catch (e) {
       _handleError(e);
     }
@@ -498,6 +498,7 @@ class GrpcAntdClient {
         gasCostWei: resp.gasCostWei,
         chunksStored: resp.chunksStored.toInt(),
         paymentModeUsed: resp.paymentModeUsed,
+        sha256: resp.sha256.isEmpty ? null : resp.sha256,
       );
     } on GrpcError catch (e) {
       _handleError(e);
@@ -532,6 +533,7 @@ class GrpcAntdClient {
         gasCostWei: resp.gasCostWei,
         chunksStored: resp.chunksStored.toInt(),
         paymentModeUsed: resp.paymentModeUsed,
+        sha256: resp.sha256.isEmpty ? null : resp.sha256,
       );
     } on GrpcError catch (e) {
       _handleError(e);
@@ -627,6 +629,8 @@ class GrpcAntdClient {
       } else {
         entry.address = e.address!;
       }
+      final sha256 = e.sha256;
+      if (sha256 != null && sha256.isNotEmpty) entry.sha256 = sha256;
       req.entries.add(entry);
     }
     try {
@@ -704,6 +708,7 @@ class GrpcAntdClient {
       dataMap: e.dataMap.isEmpty ? null : e.dataMap,
       exactSize: e.hasExactSize() ? e.exactSize.toInt() : null,
       error: e.error.isEmpty ? null : e.error,
+      sha256: e.sha256.isEmpty ? null : e.sha256,
     );
   }
 
@@ -873,6 +878,7 @@ class GrpcAntdClient {
         chunksStored: resp.chunksStored.toInt(),
         dataMap: resp.dataMap,
         dataMapAddress: resp.dataMapAddress,
+        sha256: resp.sha256.isEmpty ? null : resp.sha256,
       );
     } on GrpcError catch (e) {
       _handleError(e);
@@ -905,6 +911,7 @@ class GrpcAntdClient {
         chunksStored: resp.chunksStored.toInt(),
         dataMap: resp.dataMap,
         dataMapAddress: resp.dataMapAddress,
+        sha256: resp.sha256.isEmpty ? null : resp.sha256,
       );
     } on GrpcError catch (e) {
       _handleError(e);
