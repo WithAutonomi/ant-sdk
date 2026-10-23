@@ -326,6 +326,7 @@ impl Client {
             data_map: Self::str_field(&j, "data_map"),
             chunks_stored: Self::u64_field(&j, "chunks_stored"),
             payment_mode_used: Self::str_field(&j, "payment_mode_used"),
+            sha256: Self::opt_str_field(&j, "sha256"),
         })
     }
 
@@ -361,6 +362,7 @@ impl Client {
             address: Self::str_field(&j, "address"),
             chunks_stored: Self::u64_field(&j, "chunks_stored"),
             payment_mode_used: Self::str_field(&j, "payment_mode_used"),
+            sha256: Self::opt_str_field(&j, "sha256"),
         })
     }
 
@@ -673,6 +675,7 @@ impl Client {
             gas_cost_wei: Self::str_field(&j, "gas_cost_wei"),
             chunks_stored: Self::u64_field(&j, "chunks_stored"),
             payment_mode_used: Self::str_field(&j, "payment_mode_used"),
+            sha256: Self::opt_str_field(&j, "sha256"),
         })
     }
 
@@ -708,6 +711,7 @@ impl Client {
             gas_cost_wei: Self::str_field(&j, "gas_cost_wei"),
             chunks_stored: Self::u64_field(&j, "chunks_stored"),
             payment_mode_used: Self::str_field(&j, "payment_mode_used"),
+            sha256: Self::opt_str_field(&j, "sha256"),
         })
     }
 
@@ -1025,6 +1029,7 @@ impl Client {
             chunks_stored: Self::i64_field(j, "chunks_stored"),
             data_map: Self::str_field(j, "data_map"),
             data_map_address: Self::str_field(j, "data_map_address"),
+            sha256: Self::opt_str_field(j, "sha256"),
         }
     }
 

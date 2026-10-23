@@ -102,6 +102,11 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `file_get_public(address, dest_path)` | Download a public file by address |
 | `file_cost(path, is_public, payment_mode)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+The upload results (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult`
+and `FinalizeUploadResult`, from wave-batch and merkle finalize) carry `sha256: Option<String>`:
+the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none on older daemons. An empty
+string from the daemon also reads as `None`.
+
 ### Pointers
 
 A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's
@@ -139,12 +144,14 @@ retrying them is safe. These methods need antd 0.16.0 or later.
 
 | Method | Description |
 |--------|-------------|
-| `build_manifest(entries)` / `build_manifest_with_options(entries, opts)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`: the `.ant` bytes; `link`, only when it fits 1,500 bytes; `entries`, sorted by effective name). Each entry sets exactly one of `data_map` (`ManifestEntryInput::embedded(hex)`) or `address` (`ManifestEntryInput::public(hex)`), with an optional `path` and `size`; both or neither is `BadRequest` before anything is sent, worded as the daemon words it (`1 invalid entries: entries[0]: ...`). `BuildManifestOptions` has `name`, `torrent_info_hashes` and `keep_shrunk_data_maps`; the default embeds roots |
+| `build_manifest(entries)` / `build_manifest_with_options(entries, opts)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`: the `.ant` bytes; `link`, only when it fits 1,500 bytes; `entries`, sorted by effective name). Each entry sets exactly one of `data_map` (`ManifestEntryInput::embedded(hex)`) or `address` (`ManifestEntryInput::public(hex)`), with an optional `path`, `size` and `sha256` (`with_sha256`; requires antd 0.17.0 or later, sent only when set); both or neither is `BadRequest` before anything is sent, worded as the daemon words it (`1 invalid entries: entries[0]: ...`). `BuildManifestOptions` has `name`, `torrent_info_hashes` and `keep_shrunk_data_maps`; the default embeds roots |
 | `decode_manifest(bytes, resolve)` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrent_info_hash_v1`/`_v2`, `entries`). With `resolve`, the daemon fetches each entry's DataMap to report its `exact_size`; one entry's failure is that entry's `error`, not a failed call |
 | `decode_manifest_link(link, resolve)` | Decode an `ant://` manifest link, a file link or a bare address. A file link or address is one public entry with no path, `source` `"file_link"` |
 
 `ManifestEntryInfo` has `effective_name`, `path`, `size`, `kind` (`"embedded"` or `"public"`),
-`content_address`, `data_map` (decode only; `None` for public entries), `exact_size` and `error`.
+`content_address`, `data_map` (decode only; `None` for public entries), `exact_size`, `sha256`
+(`Option<String>`, the plaintext's SHA-256 the entry was built with; requires antd 0.17.0 or
+later) and `error`.
 Sizes are `Option<u64>`: unset is `None`, never `0`. Both clients take and return the raw `.ant`
 bytes; REST's base64 never reaches the caller. An invalid entry or input is `BadRequest`, with the
 daemon's message naming `entries[i]`, over gRPC too.

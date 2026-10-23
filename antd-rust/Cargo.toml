@@ -34,6 +34,7 @@ tonic-build = "0.12"
 mockito = "1"
 alloy = { version = "1", features = ["full"] }
 hex = "0.4"
+sha2 = "0.10"
 
 [[example]]
 name = "01-connect"

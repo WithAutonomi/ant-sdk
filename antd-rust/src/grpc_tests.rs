@@ -10,6 +10,18 @@ use crate::models::{
 
 // --- Mock service implementations ---
 
+/// SHA-256 of "sha", which the mock upload services report when the request's
+/// data, path or upload id is "sha" (an older daemon's empty string otherwise).
+const SHA_OF_SHA: &str = "d600474b1b8e50d3633c91c0cf1efc454b79c9624a43fd7de441ee71745726ab";
+
+fn sha_for(wanted: bool) -> String {
+    if wanted {
+        SHA_OF_SHA.to_string()
+    } else {
+        String::new()
+    }
+}
+
 type MockChunkStream = tokio_stream::wrappers::ReceiverStream<Result<v1::DataChunk, Status>>;
 
 /// Answers a ranged stream request like the daemon: `x-content-range` metadata
@@ -174,8 +186,9 @@ struct MockDataService;
 impl v1::data_service_server::DataService for MockDataService {
     async fn put_public(
         &self,
-        _request: Request<v1::PutPublicDataRequest>,
+        request: Request<v1::PutPublicDataRequest>,
     ) -> Result<Response<v1::PutPublicDataResponse>, Status> {
+        let sha256 = sha_for(request.into_inner().data == b"sha");
         Ok(Response::new(v1::PutPublicDataResponse {
             cost: Some(v1::Cost {
                 atto_tokens: "100".to_string(),
@@ -184,7 +197,7 @@ impl v1::data_service_server::DataService for MockDataService {
             address: "abc123".to_string(),
             chunks_stored: 2,
             payment_mode_used: "auto".to_string(),
-            sha256: String::new(),
+            sha256,
         }))
     }
 
@@ -199,8 +212,9 @@ impl v1::data_service_server::DataService for MockDataService {
 
     async fn put(
         &self,
-        _request: Request<v1::PutDataRequest>,
+        request: Request<v1::PutDataRequest>,
     ) -> Result<Response<v1::PutDataResponse>, Status> {
+        let sha256 = sha_for(request.into_inner().data == b"sha");
         Ok(Response::new(v1::PutDataResponse {
             cost: Some(v1::Cost {
                 atto_tokens: "200".to_string(),
@@ -209,7 +223,7 @@ impl v1::data_service_server::DataService for MockDataService {
             data_map: "dm123".to_string(),
             chunks_stored: 3,
             payment_mode_used: "single".to_string(),
-            sha256: String::new(),
+            sha256,
         }))
     }
 
@@ -505,6 +519,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                  (paid attempt retai",
             ));
         }
+        let sha256 = sha_for(req.upload_id.starts_with("sha"));
         // Wave-batch: tx_hashes populated, winner_pool_hash empty.
         // Merkle:     winner_pool_hash populated, tx_hashes empty.
         if !req.winner_pool_hash.is_empty() {
@@ -517,7 +532,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                 },
                 data_map_address: String::new(),
                 chunks_stored: 64,
-                sha256: String::new(),
+                sha256,
             }));
         }
         // Wave-batch — include data_map_address when visibility was public
@@ -532,7 +547,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                 String::new()
             },
             chunks_stored: 3,
-            sha256: String::new(),
+            sha256,
         }))
     }
 }
@@ -544,29 +559,31 @@ struct MockFileService;
 impl v1::file_service_server::FileService for MockFileService {
     async fn put(
         &self,
-        _request: Request<v1::PutFileRequest>,
+        request: Request<v1::PutFileRequest>,
     ) -> Result<Response<v1::PutFileResponse>, Status> {
+        let sha256 = sha_for(request.into_inner().path == "/tmp/sha");
         Ok(Response::new(v1::PutFileResponse {
             data_map: "dmfile1".to_string(),
             storage_cost_atto: "900".to_string(),
             gas_cost_wei: "41".to_string(),
             chunks_stored: 3,
             payment_mode_used: "auto".to_string(),
-            sha256: String::new(),
+            sha256,
         }))
     }
 
     async fn put_public(
         &self,
-        _request: Request<v1::PutFileRequest>,
+        request: Request<v1::PutFileRequest>,
     ) -> Result<Response<v1::PutFilePublicResponse>, Status> {
+        let sha256 = sha_for(request.into_inner().path == "/tmp/sha");
         Ok(Response::new(v1::PutFilePublicResponse {
             address: "file1".to_string(),
             storage_cost_atto: "1000".to_string(),
             gas_cost_wei: "42".to_string(),
             chunks_stored: 3,
             payment_mode_used: "auto".to_string(),
-            sha256: String::new(),
+            sha256,
         }))
     }
 
@@ -2206,4 +2223,84 @@ fn test_grpc_invalid_argument_ignores_a_disagreeing_tag() {
         .metadata_mut()
         .insert("x-antd-error-code", "POINTER_FINAL".parse().unwrap());
     assert!(matches!(AntdError::from(status), AntdError::PointerFinal(m) if m == "frozen"));
+}
+
+// --- sha256 on upload results ---
+
+#[tokio::test]
+async fn test_grpc_data_put_reads_sha256() {
+    let client = start_mock_server().await;
+    let r = client.data_put(b"sha", PaymentMode::Auto).await.unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA_OF_SHA));
+    // The proto string's zero value reads as none.
+    let r = client.data_put(b"x", PaymentMode::Auto).await.unwrap();
+    assert_eq!(r.sha256, None);
+}
+
+#[tokio::test]
+async fn test_grpc_data_put_public_reads_sha256() {
+    let client = start_mock_server().await;
+    let r = client
+        .data_put_public(b"sha", PaymentMode::Auto)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA_OF_SHA));
+    let r = client
+        .data_put_public(b"x", PaymentMode::Auto)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256, None);
+}
+
+#[tokio::test]
+async fn test_grpc_file_put_reads_sha256() {
+    let client = start_mock_server().await;
+    let r = client
+        .file_put("/tmp/sha", PaymentMode::Auto)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA_OF_SHA));
+    let r = client.file_put("/tmp/x", PaymentMode::Auto).await.unwrap();
+    assert_eq!(r.sha256, None);
+}
+
+#[tokio::test]
+async fn test_grpc_file_put_public_reads_sha256() {
+    let client = start_mock_server().await;
+    let r = client
+        .file_put_public("/tmp/sha", PaymentMode::Auto)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA_OF_SHA));
+    let r = client
+        .file_put_public("/tmp/x", PaymentMode::Auto)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256, None);
+}
+
+#[tokio::test]
+async fn test_grpc_finalize_upload_reads_sha256() {
+    let client = start_mock_server().await;
+    let mut tx_hashes = std::collections::HashMap::new();
+    tx_hashes.insert("0xq1".to_string(), "0xtx1".to_string());
+    // Wave-batch.
+    let r = client
+        .finalize_upload("sha_wave", &tx_hashes)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA_OF_SHA));
+    let r = client.finalize_upload("up_wave", &tx_hashes).await.unwrap();
+    assert_eq!(r.sha256, None);
+    // Merkle.
+    let r = client
+        .finalize_merkle_upload("sha_merkle", "0xwinpool", false)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA_OF_SHA));
+    let r = client
+        .finalize_merkle_upload("up_merkle", "0xwinpool", false)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256, None);
 }

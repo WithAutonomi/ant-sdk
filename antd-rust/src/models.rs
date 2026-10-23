@@ -94,6 +94,10 @@ pub struct DataPutResult {
     pub chunks_stored: u64,
     #[serde(default)]
     pub payment_mode_used: String,
+    /// The plaintext's SHA-256 (lowercase hex). `None` from a daemon older
+    /// than antd 0.17.0, which does not send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// Result of a public data put. The DataMap is stored on-network as an
@@ -106,6 +110,10 @@ pub struct DataPutPublicResult {
     pub chunks_stored: u64,
     #[serde(default)]
     pub payment_mode_used: String,
+    /// The plaintext's SHA-256 (lowercase hex). `None` from a daemon older
+    /// than antd 0.17.0, which does not send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// Result of a private file upload. The DataMap is returned to the caller;
@@ -122,6 +130,10 @@ pub struct FilePutResult {
     pub chunks_stored: u64,
     /// Which payment mode was actually used (`"auto"`, `"merkle"`, or `"single"`).
     pub payment_mode_used: String,
+    /// The plaintext's SHA-256 (lowercase hex). `None` from a daemon older
+    /// than antd 0.17.0, which does not send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// Result of a public file upload. The DataMap is stored on-network as an
@@ -138,6 +150,10 @@ pub struct FilePutPublicResult {
     pub chunks_stored: u64,
     /// Which payment mode was actually used.
     pub payment_mode_used: String,
+    /// The plaintext's SHA-256 (lowercase hex). `None` from a daemon older
+    /// than antd 0.17.0, which does not send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// Wallet address from the antd daemon.
@@ -328,6 +344,10 @@ pub struct FinalizeUploadResult {
     pub data_map: String,
     #[serde(default)]
     pub data_map_address: String,
+    /// The plaintext's SHA-256 (lowercase hex). `None` from a daemon older
+    /// than antd 0.17.0, which does not send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// Result of preparing a single-chunk publish for external signing.
