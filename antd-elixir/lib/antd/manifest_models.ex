@@ -15,6 +15,9 @@ defmodule Antd.ManifestEntryInput do
     * `data_map` — a hex DataMap, as the upload functions return it. The
       entry embeds it: the manifest is the key to the file.
     * `address` — a public file's DataMap address (hex, 32 bytes).
+    * `sha256` — the plaintext's SHA-256 (hex) to record for the entry, passed
+      through as given; the daemon validates it. `nil` (or `""`): none is
+      sent. Requires antd 0.17.0 or later.
 
   ## Examples
 
@@ -22,13 +25,14 @@ defmodule Antd.ManifestEntryInput do
       %Antd.ManifestEntryInput{path: "secret.txt", size: 82, data_map: data_map}
   """
 
-  defstruct path: nil, size: nil, data_map: nil, address: nil
+  defstruct path: nil, size: nil, data_map: nil, address: nil, sha256: nil
 
   @type t :: %__MODULE__{
           path: String.t() | nil,
           size: non_neg_integer() | nil,
           data_map: String.t() | nil,
-          address: String.t() | nil
+          address: String.t() | nil,
+          sha256: String.t() | nil
         }
 end
 
@@ -53,6 +57,8 @@ defmodule Antd.ManifestEntryInfo do
       or after a resolving decode; `nil` when unknown.
     * `error` — why a resolving decode failed for this entry, or `nil`. One
       entry's failure is reported here, not as a failed call.
+    * `sha256` — the plaintext's SHA-256 (lowercase hex) the manifest records
+      for the entry, or `nil` when none. Requires antd 0.17.0 or later.
   """
 
   defstruct effective_name: "",
@@ -62,7 +68,8 @@ defmodule Antd.ManifestEntryInfo do
             content_address: "",
             data_map: nil,
             exact_size: nil,
-            error: nil
+            error: nil,
+            sha256: nil
 
   @type t :: %__MODULE__{
           effective_name: String.t(),
@@ -72,7 +79,8 @@ defmodule Antd.ManifestEntryInfo do
           content_address: String.t(),
           data_map: String.t() | nil,
           exact_size: non_neg_integer() | nil,
-          error: String.t() | nil
+          error: String.t() | nil,
+          sha256: String.t() | nil
         }
 end
 
