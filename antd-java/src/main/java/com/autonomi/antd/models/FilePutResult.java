@@ -9,10 +9,24 @@ package com.autonomi.antd.models;
  * @param gasCostWei       total gas cost paid in wei as a decimal string
  * @param chunksStored     number of chunks stored on the network
  * @param paymentModeUsed  which payment mode was actually used: "auto", "merkle", or "single"
+ * @param sha256           the plaintext's SHA-256 (hex, lowercase); {@code null}
+ *                         on antd before 0.17.0
  */
 public record FilePutResult(
         String dataMap,
         String storageCostAtto,
         String gasCostWei,
         long chunksStored,
-        String paymentModeUsed) {}
+        String paymentModeUsed,
+        String sha256) {
+
+    /** Backward-compatible constructor without {@code sha256} (defaults to {@code null}). */
+    public FilePutResult(
+            String dataMap,
+            String storageCostAtto,
+            String gasCostWei,
+            long chunksStored,
+            String paymentModeUsed) {
+        this(dataMap, storageCostAtto, gasCostWei, chunksStored, paymentModeUsed, null);
+    }
+}
