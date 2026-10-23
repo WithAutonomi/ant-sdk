@@ -125,6 +125,8 @@ The `.ant` bytes are always raw `bytes` in this API: REST carries them as base64
 | `decode_manifest(manifest, resolve=False)` | `DecodedManifest` | Decode `.ant` bytes. With `resolve`, each entry's `exact_size` comes from the network, and a failure lands in that entry's `error` rather than failing the call |
 | `decode_manifest_link(link, resolve=False)` | `DecodedManifest` | Decode an `ant://manifest/` link, a file link or a bare 64-hex address (`source="file_link"`: one public entry, no path) |
 
+Each `ManifestEntryInput` takes an optional `sha256` (the plaintext's SHA-256, hex), recorded in the manifest, and each `ManifestEntryInfo` reports it; requires antd 0.17.0 or later. The client sends it as given (unset or `""` is omitted) and the daemon validates it, so a malformed one raises `BadRequestError`.
+
 An invalid entry, such as a bad path (`../x`) or malformed hex, raises `BadRequestError` (HTTP 400 / gRPC `INVALID_ARGUMENT`) with the daemon's message, which names `entries[i]`. One the client refuses before sending (both or neither of `data_map`/`address`, a bad `size`, empty decode input) is the same error with `status_code` 400 and the daemon's wording, such as `2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address`, so one `except` covers both.
 
 ```python
@@ -210,12 +212,13 @@ All models are frozen dataclasses (immutable).
 |-------|--------|-------------|
 | `HealthStatus` | `ok`, `network`, `version`, `evm_network`, `uptime_seconds`, `build_commit`, `payment_token_address`, `payment_vault_address` | Health check result (diagnostic fields require antd ≥ 0.4.0) |
 | `PutResult` | `cost`, `address` | Result of `chunk_put` only |
-| `DataPutResult` | `data_map`, `chunks_stored`, `payment_mode_used` | Private data put — DataMap returned to caller |
-| `DataPutPublicResult` | `address`, `chunks_stored`, `payment_mode_used` | Public data put — DataMap stored on-network |
-| `FilePutResult` | `data_map`, `storage_cost_atto`, `gas_cost_wei`, `chunks_stored`, `payment_mode_used` | Private file put — DataMap returned to caller |
-| `FilePutPublicResult` | `address`, `storage_cost_atto`, `gas_cost_wei`, `chunks_stored`, `payment_mode_used` | Public file put — DataMap stored on-network |
-| `ManifestEntryInput` | `data_map`, `address`, `path`, `size` (keyword-only) | One file for `build_manifest`: exactly one of `data_map` (embedded) or `address` (public) |
-| `ManifestEntryInfo` | `effective_name`, `path`, `size`, `kind`, `content_address`, `data_map`, `exact_size`, `error` | What a manifest says about one entry. `kind` is `"embedded"` or `"public"`; `data_map` is set by a decode, for embedded entries; `error` only by a resolving decode |
+| `DataPutResult` | `data_map`, `chunks_stored`, `payment_mode_used`, `sha256` | Private data put — DataMap returned to caller |
+| `DataPutPublicResult` | `address`, `chunks_stored`, `payment_mode_used`, `sha256` | Public data put — DataMap stored on-network |
+| `FilePutResult` | `data_map`, `storage_cost_atto`, `gas_cost_wei`, `chunks_stored`, `payment_mode_used`, `sha256` | Private file put — DataMap returned to caller |
+| `FilePutPublicResult` | `address`, `storage_cost_atto`, `gas_cost_wei`, `chunks_stored`, `payment_mode_used`, `sha256` | Public file put — DataMap stored on-network |
+| `FinalizeUploadResult` | `address`, `chunks_stored`, `data_map`, `data_map_address`, `sha256` | Result of `finalize_upload` / `finalize_merkle_upload` |
+| `ManifestEntryInput` | `data_map`, `address`, `path`, `size`, `sha256` (keyword-only) | One file for `build_manifest`: exactly one of `data_map` (embedded) or `address` (public). `sha256` is optional (the plaintext's SHA-256 in hex, passed to the daemon as given); requires antd 0.17.0 or later |
+| `ManifestEntryInfo` | `effective_name`, `path`, `size`, `kind`, `content_address`, `data_map`, `exact_size`, `error`, `sha256` | What a manifest says about one entry. `kind` is `"embedded"` or `"public"`; `data_map` is set by a decode, for embedded entries; `error` only by a resolving decode; `sha256` is the plaintext's SHA-256 (hex) the manifest records, `None` when it records none; requires antd 0.17.0 or later |
 | `BuiltManifest` | `manifest` (`bytes`), `link`, `entries` | A built manifest: the `.ant` bytes, the link when it fits, the entries sorted by effective name |
 | `DecodedManifest` | `source`, `name`, `torrent_info_hash_v1`, `torrent_info_hash_v2`, `entries` | A decoded manifest. `source` is `"manifest"` or `"file_link"` |
 | `UploadCostEstimate` | `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` | Pre-upload cost breakdown |
@@ -229,6 +232,8 @@ All models are frozen dataclasses (immutable).
 | `PointerPrepareResult` | `upload_id`, `op`, `address`, `state_id`, `counter`, `payment_type`, `payments`, `total_amount`, `payment_vault_address`, `payment_token_address`, `rpc_url`, `signed_quotes` | A signed pointer write quoted for an external signer |
 | `PointerFinalizeResult` | `address`, `state_id`, `counter`, `finality` | What a pointer finalize stored (`finality` for a transfer) |
 | `SignedQuoteEntry` | `quote_hash`, `quote`, `commitment_sidecar` | A quote in full signed form (base64), with `include_signed_quotes=True` |
+
+`sha256` on `DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and `FinalizeUploadResult`: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none on older daemons (`None`).
 
 Enums: `PointerKind` (`CHUNK`, `POINTER`), `PointerOp` (`CREATE`, `UPDATE`, `TRANSFER`), `PointerFinalityStatus` (above). Unset values read as `None` on both transports (REST sends `null`, gRPC an empty string or absent message).
 

@@ -124,6 +124,8 @@ def build_body(
             m["path"] = e.path
         if e.size is not None:
             m["size"] = e.size
+        if e.sha256:
+            m["sha256"] = e.sha256
         if e.data_map:
             m["data_map"] = e.data_map
         else:
@@ -193,6 +195,7 @@ def entry_from_json(j: dict) -> ManifestEntryInfo:
         data_map=_opt_str(j.get("data_map")),
         exact_size=_opt_u64(j.get("exact_size")),
         error=_opt_str(j.get("error")),
+        sha256=_opt_str(j.get("sha256")),
     )
 
 
@@ -240,6 +243,7 @@ def entry_from_pb(e) -> ManifestEntryInfo:
         data_map=_opt_str(e.data_map),
         exact_size=_pb_opt_u64(e, "exact_size"),
         error=_opt_str(e.error),
+        sha256=_opt_str(e.sha256),
     )
 
 
