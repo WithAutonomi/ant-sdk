@@ -102,6 +102,8 @@ All methods return `!T` (error union) using Zig's standard error handling.
 | `dataGet` | `fn (self: *Client, data_map: []const u8) ![]const u8` | Retrieve private data using a caller-held DataMap |
 | `dataCost` | `fn (self: *Client, data: []const u8, payment_mode: PaymentMode) !UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
 
+**`sha256` on upload results.** `DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and `FinalizeUploadResult` (the typed form of the `finalizeUpload` response) have `sha256: ?[]const u8`: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none on older daemons. It is `null` when the daemon sends no `sha256` or an empty one.
+
 ### Chunks
 
 | Method | Signature | Description |
@@ -132,6 +134,7 @@ A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that lists
 | `decodeManifestLink` | `fn (self: *Client, link: []const u8, resolve: bool) !DecodedManifest` | Decode an `ant://` manifest link, a file link or a bare 64-hex address. A file link reads as `source` `"file_link"` with one public entry |
 
 - **Entries.** A `ManifestEntryInput` sets exactly one of `data_map` or `address` (an empty string counts as unset), with an optional `path` and `size`. If an entry sets both or neither, the call returns `error.BadRequest` before sending anything, and `getLastError()` is the same as for the daemon's 400: `status_code` 400 and the daemon's message, which lists every bad entry (`2 invalid entries: entries[0]: give data_map or address, not both; entries[1]: needs a data_map or an address`). The daemon rejects an invalid path (such as `../x`) or invalid hex with a 400, which is also `error.BadRequest`. Its message names the entry (`entries[i]: ...`).
+- **sha256.** A `ManifestEntryInput` has an optional `sha256` (the plaintext's SHA-256, hex; requires antd 0.17.0 or later). It is sent only when set and non-empty, exactly as given: the SDK doesn't check or change it, and the daemon answers a malformed one with a 400 (`error.BadRequest`, message `entries[i]: invalid hex sha256: ...` or `entries[i]: sha256 must be 32 bytes, got N`). A `ManifestEntryInfo` has `sha256: ?[]const u8` for the hash the manifest records (requires antd 0.17.0 or later); it is `null` when none is recorded, on build and decode results alike.
 - **Options.** `BuildManifestOptions` has an optional `name` (a root directory name), `torrent_info_hashes` (hex, 40 characters for v1 and 64 for v2), and `embed_roots`. `.{}` gives the defaults. `embed_roots` is `true` by default: the daemon resolves each shrunk DataMap's root and embeds it when it is at most 64 KiB, so recipients don't have to fetch it. Set it to `false` to embed shrunk DataMaps exactly as given.
 - **Bytes.** The `.ant` bytes go to and from the daemon as base64 in JSON, but you only see raw bytes: `BuiltManifest.manifest` is the decoded file, and `decodeManifest` takes the file's bytes. `link` is `null` when the link would be longer than 1,500 bytes. Share the bytes instead.
 - **Entries returned.** A `ManifestEntryInfo` has `effective_name` (the path, or the content address when there is no path), `kind` (`"embedded"` or `"public"`) and `content_address` (hex). `data_map` is set only when you decode an embedded entry, and is in the hex form `dataGet` and `fileGet` accept. Entries come back sorted by effective name.
@@ -155,6 +158,8 @@ for (decoded.entries) |entry| {
 ```
 
 `ANTD_BASE_URL=http://127.0.0.1:8082 zig build run-10-manifests` runs the example. It uploads two small pieces of public data, which the daemon wallet pays for. It then builds a manifest of them, prints the link and entries, and decodes the link with `resolve`.
+
+`zig build test` also runs a live sha256 check when `ANTD_TEST_URL`, `ANTD_TEST_SHA_LINK`, `ANTD_TEST_SHA_PUBLIC_ADDRESS`, `ANTD_TEST_SHA_PUBLIC_SHA256` and `ANTD_TEST_SHA_DATA_MAP_SHA256` are set. It makes one paid call: a small public data upload whose `sha256` must equal the SHA-256 computed locally.
 
 `zig build test` also runs a live manifest round trip when `ANTD_TEST_URL` and `ANTD_TEST_MANIFEST_ADDRESSES` (two comma-separated addresses of public data already on the network) are set. It also uses `ANTD_TEST_MANIFEST_SIZES`, `ANTD_TEST_MANIFEST_DATA_MAP`, `ANTD_TEST_MANIFEST_DATA_MAP_SIZE` and `ANTD_TEST_MANIFEST_LINK` when they are set. The round trip uploads and pays for nothing.
 

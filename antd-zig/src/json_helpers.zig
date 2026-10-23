@@ -11,6 +11,16 @@ fn dupeString(allocator: Allocator, value: std.json.Value) ![]const u8 {
     };
 }
 
+/// An owned copy of an optional string field: `null` when the key is absent,
+/// null, empty or not a string. A missing `sha256` (antd before 0.17.0) and
+/// an empty one both read as `null`.
+fn optionalString(allocator: Allocator, obj: std.json.ObjectMap, key: []const u8) !?[]const u8 {
+    return switch (obj.get(key) orelse return null) {
+        .string => |s| if (s.len == 0) null else try allocator.dupe(u8, s),
+        else => null,
+    };
+}
+
 /// Parse a HealthStatus from a JSON response body.
 pub fn parseHealthStatus(allocator: Allocator, body: []const u8) !models.HealthStatus {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
@@ -108,11 +118,16 @@ pub fn parseDataPutResult(allocator: Allocator, body: []const u8) !models.DataPu
 
     const payment_mode_used = dupeString(allocator, obj.get("payment_mode_used") orelse .null) catch
         return error.JsonError;
+    errdefer allocator.free(payment_mode_used);
+
+    const sha256 = try optionalString(allocator, obj, "sha256");
+    errdefer if (sha256) |v| allocator.free(v);
 
     return .{
         .data_map = data_map,
         .chunks_stored = chunks_stored,
         .payment_mode_used = payment_mode_used,
+        .sha256 = sha256,
     };
 }
 
@@ -135,11 +150,16 @@ pub fn parseDataPutPublicResult(allocator: Allocator, body: []const u8) !models.
 
     const payment_mode_used = dupeString(allocator, obj.get("payment_mode_used") orelse .null) catch
         return error.JsonError;
+    errdefer allocator.free(payment_mode_used);
+
+    const sha256 = try optionalString(allocator, obj, "sha256");
+    errdefer if (sha256) |v| allocator.free(v);
 
     return .{
         .address = address,
         .chunks_stored = chunks_stored,
         .payment_mode_used = payment_mode_used,
+        .sha256 = sha256,
     };
 }
 
@@ -171,6 +191,10 @@ pub fn parseFilePutPublicResult(allocator: Allocator, body: []const u8) !models.
 
     const payment_mode_used = dupeString(allocator, obj.get("payment_mode_used") orelse .null) catch
         return error.JsonError;
+    errdefer allocator.free(payment_mode_used);
+
+    const sha256 = try optionalString(allocator, obj, "sha256");
+    errdefer if (sha256) |v| allocator.free(v);
 
     return .{
         .address = address,
@@ -178,6 +202,7 @@ pub fn parseFilePutPublicResult(allocator: Allocator, body: []const u8) !models.
         .gas_cost_wei = gas_cost_wei,
         .chunks_stored = chunks_stored,
         .payment_mode_used = payment_mode_used,
+        .sha256 = sha256,
     };
 }
 
@@ -208,6 +233,10 @@ pub fn parseFilePutResult(allocator: Allocator, body: []const u8) !models.FilePu
 
     const payment_mode_used = dupeString(allocator, obj.get("payment_mode_used") orelse .null) catch
         return error.JsonError;
+    errdefer allocator.free(payment_mode_used);
+
+    const sha256 = try optionalString(allocator, obj, "sha256");
+    errdefer if (sha256) |v| allocator.free(v);
 
     return .{
         .data_map = data_map,
@@ -215,6 +244,7 @@ pub fn parseFilePutResult(allocator: Allocator, body: []const u8) !models.FilePu
         .gas_cost_wei = gas_cost_wei,
         .chunks_stored = chunks_stored,
         .payment_mode_used = payment_mode_used,
+        .sha256 = sha256,
     };
 }
 
@@ -610,11 +640,15 @@ pub fn parseFinalizeUploadResult(allocator: Allocator, body: []const u8) !models
 
     const chunks_stored = dupeU64(obj.get("chunks_stored") orelse .null);
 
+    const sha256 = try optionalString(allocator, obj, "sha256");
+    errdefer if (sha256) |v| allocator.free(v);
+
     return .{
         .data_map = data_map,
         .address = address,
         .data_map_address = data_map_address,
         .chunks_stored = chunks_stored,
+        .sha256 = sha256,
     };
 }
 

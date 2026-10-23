@@ -11,6 +11,14 @@ test {
     _ = @import("live_manifests_test.zig");
 }
 
+// sha256 fields (antd 0.17.0): mocked upload results and manifest entries,
+// and a live check that runs only when ANTD_TEST_URL and ANTD_TEST_SHA_LINK
+// (and the other ANTD_TEST_SHA_* fixtures) are set.
+test {
+    _ = @import("sha256_tests.zig");
+    _ = @import("live_sha256_test.zig");
+}
+
 // =============================================================================
 // Error mapping tests
 // =============================================================================

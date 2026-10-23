@@ -31,6 +31,11 @@ pub const ManifestEntryInput = struct {
     /// A public file's DataMap address (hex, 32 bytes), as `dataPutPublic`
     /// and `filePutPublic` return it.
     address: ?[]const u8 = null,
+    /// The plaintext's SHA-256 (hex), recorded in the manifest. Passed to the
+    /// daemon exactly as given, with no check here: the daemon validates it
+    /// (upper or lower case; anything else is a 400, `error.BadRequest`).
+    /// `null` or empty: not sent. Needs antd 0.17.0 or later.
+    sha256: ?[]const u8 = null,
 };
 
 /// The optional parts of a `Client.buildManifest` call. `.{}` is the
@@ -75,6 +80,10 @@ pub const ManifestEntryInfo = struct {
     /// Why a resolving decode failed for this entry (the wire's `error`).
     /// `null` when it didn't. One entry's failure is not a failed call.
     error_message: ?[]const u8 = null,
+    /// The plaintext's SHA-256 (lowercase hex) the manifest records for the
+    /// entry. `null` when none is recorded, the key is absent or it is empty
+    /// (antd before 0.17.0 never sends it).
+    sha256: ?[]const u8 = null,
 
     pub fn deinit(self: ManifestEntryInfo, allocator: Allocator) void {
         allocator.free(self.effective_name);
@@ -83,6 +92,7 @@ pub const ManifestEntryInfo = struct {
         allocator.free(self.content_address);
         if (self.data_map) |s| allocator.free(s);
         if (self.error_message) |s| allocator.free(s);
+        if (self.sha256) |s| allocator.free(s);
     }
 };
 
@@ -200,8 +210,8 @@ pub const empty_decode_message = "needs a manifest (base64 .ant bytes) or a link
 
 // --- Request bodies ---
 
-/// The POST /v1/manifests/build body. Unset (null or empty) `path`, `name`
-/// and torrent hashes are omitted, as is an unset `size`; `embed_roots` is
+/// The POST /v1/manifests/build body. Unset (null or empty) `path`, `sha256`,
+/// `name` and torrent hashes are omitted, as is an unset `size`; `embed_roots` is
 /// always sent. Returns `error.BadRequest` if an entry fails
 /// `firstInvalidEntry`. The caller frees the result.
 pub fn buildManifestBuildBody(allocator: Allocator, entries: []const ManifestEntryInput, options: BuildManifestOptions) ![]u8 {
@@ -230,6 +240,10 @@ pub fn buildManifestBuildBody(allocator: Allocator, entries: []const ManifestEnt
         } else {
             try w.objectField("address");
             try w.write(e.address.?);
+        }
+        if (nonEmpty(e.sha256)) |h| {
+            try w.objectField("sha256");
+            try w.write(h);
         }
         try w.endObject();
     }
@@ -377,6 +391,8 @@ fn parseEntry(allocator: Allocator, o: std.json.ObjectMap) !ManifestEntryInfo {
     errdefer if (data_map) |s| allocator.free(s);
     const exact_size = try optionalU64(o, "exact_size");
     const error_message = try optionalString(allocator, o, "error");
+    errdefer if (error_message) |s| allocator.free(s);
+    const sha256 = try optionalString(allocator, o, "sha256");
 
     return .{
         .effective_name = effective_name,
@@ -387,6 +403,7 @@ fn parseEntry(allocator: Allocator, o: std.json.ObjectMap) !ManifestEntryInfo {
         .data_map = data_map,
         .exact_size = exact_size,
         .error_message = error_message,
+        .sha256 = sha256,
     };
 }
 
