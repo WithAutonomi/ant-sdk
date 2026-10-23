@@ -194,6 +194,8 @@ for e in decoded.entries:
 
 `decode_manifest(bytes, resolve=False)` takes raw `.ant` bytes instead of a link. Pass `data_map=` instead of `address=` for an embedded entry, and `embed_roots=False` to keep shrunk DataMaps as given. Works on the sync and async clients, over REST and gRPC.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `sha256: str | None` (`None` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `ManifestEntryInput(sha256=hex)` records one, and `ManifestEntryInfo.sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-py/examples/10_manifests.py`. Its two uploads pay; the manifest calls do not.
 
 ```bash

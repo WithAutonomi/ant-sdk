@@ -84,6 +84,15 @@ All methods are `async throws` for use with Swift concurrency.
 | **Files** | `filePut`, `fileGet`, `filePutPublic`, `fileGetPublic`, `fileCost`. Private variants return a caller-held DataMap (NOT stored on-network); public variants store the DataMap on-network at the returned address. All puts and `fileCost` accept a `PaymentMode` parameter. |
 | **Pointers** | `pointerKeys`, `pointerCreate`, `pointerUpdate`, `pointerTransfer`, `pointerGet`, `pointerResolve`, `pointerFinality`, `pointerController`, and `pointerPrepare` / `pointerFinalize` for an external signer. See [Pointers](#pointers). |
 
+## Upload SHA-256
+
+`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult`, `FinalizeUploadResult` and `FinalizeMerkleUploadResult` carry `sha256: String?`: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none on older daemons. It is `nil` when the daemon sends none, whether the key is absent (REST) or empty (gRPC). The same hash can go on a manifest entry (see [Manifests](#manifests)).
+
+```swift
+let put = try await client.dataPutPublic(Data("hello".utf8), paymentMode: .auto)
+print(put.sha256 ?? "none")   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+```
+
 ## Pointers
 
 A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes. The owner can point it at a new target (a chunk, such as a public upload's address, or another pointer), and can hand it over to another pointer for good with `pointerTransfer`. Both REST and gRPC clients implement the full pointer API (antd 0.16.0 or later).
@@ -232,6 +241,7 @@ for entry in decoded.entries {
 ```
 
 - **Entries:** set exactly one of `dataMap` (hex, embedded) or `address` (hex, public) on each `ManifestEntryInput`. An entry with both or neither throws `BadRequestError` before anything is sent. An entry the daemon refuses, such as a path like `../x`, throws `BadRequestError` (HTTP 400, gRPC INVALID_ARGUMENT) whose message names it as `entries[i]`.
+- **`sha256`:** an optional `sha256: String?` on `ManifestEntryInput` records the plaintext's SHA-256 (hex) for the entry, for example the `sha256` an upload returned; requires antd 0.17.0 or later. `nil` or empty is not sent. It is passed through as given, so a malformed hash is the daemon's `BadRequestError` (HTTP 400, gRPC INVALID_ARGUMENT). `ManifestEntryInfo.sha256` (build and decode) is the recorded hash, or `nil` when none; requires antd 0.17.0 or later. It is the creator's claim, not verified against the content.
 - **Bytes:** `BuiltManifest.manifest` and the input to `decodeManifest` are raw `Data` on both transports. REST carries them as base64 in JSON and gRPC as `bytes`; the clients convert.
 - **Root embedding:** `BuildManifestOptions().embedRoots` is `true`, the daemon's default: it resolves each shrunk DataMap and embeds the root when it is at most 64 KiB, so recipients skip that fetch. Pass `embedRoots: false` to embed DataMaps exactly as given.
 - **Sizes are `UInt64?`.** `size` is the size the creator recorded and `exactSize` the exact plaintext size, from an embedded root DataMap or a resolving decode. An unset size is `nil`, never `0`. Likewise `path`, `link`, `name`, `dataMap` (decode only, for embedded entries), the torrent info hashes and `error` are `nil` when absent.

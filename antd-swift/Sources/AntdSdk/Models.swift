@@ -71,11 +71,15 @@ public struct DataPutResult: Sendable, Equatable {
     public let dataMap: String
     public let chunksStored: UInt64
     public let paymentModeUsed: String
+    /// The plaintext's SHA-256, lowercase hex (64 characters). `nil` on daemons
+    /// older than antd 0.17.0, which do not send it.
+    public let sha256: String?
 
-    public init(dataMap: String, chunksStored: UInt64 = 0, paymentModeUsed: String = "") {
+    public init(dataMap: String, chunksStored: UInt64 = 0, paymentModeUsed: String = "", sha256: String? = nil) {
         self.dataMap = dataMap
         self.chunksStored = chunksStored
         self.paymentModeUsed = paymentModeUsed
+        self.sha256 = sha256
     }
 }
 
@@ -87,11 +91,15 @@ public struct DataPutPublicResult: Sendable, Equatable {
     public let address: String
     public let chunksStored: UInt64
     public let paymentModeUsed: String
+    /// The plaintext's SHA-256, lowercase hex (64 characters). `nil` on daemons
+    /// older than antd 0.17.0, which do not send it.
+    public let sha256: String?
 
-    public init(address: String, chunksStored: UInt64 = 0, paymentModeUsed: String = "") {
+    public init(address: String, chunksStored: UInt64 = 0, paymentModeUsed: String = "", sha256: String? = nil) {
         self.address = address
         self.chunksStored = chunksStored
         self.paymentModeUsed = paymentModeUsed
+        self.sha256 = sha256
     }
 }
 
@@ -104,13 +112,17 @@ public struct FilePutResult: Sendable, Equatable {
     public let gasCostWei: String
     public let chunksStored: UInt64
     public let paymentModeUsed: String
+    /// The plaintext's SHA-256, lowercase hex (64 characters). `nil` on daemons
+    /// older than antd 0.17.0, which do not send it.
+    public let sha256: String?
 
-    public init(dataMap: String, storageCostAtto: String, gasCostWei: String, chunksStored: UInt64, paymentModeUsed: String) {
+    public init(dataMap: String, storageCostAtto: String, gasCostWei: String, chunksStored: UInt64, paymentModeUsed: String, sha256: String? = nil) {
         self.dataMap = dataMap
         self.storageCostAtto = storageCostAtto
         self.gasCostWei = gasCostWei
         self.chunksStored = chunksStored
         self.paymentModeUsed = paymentModeUsed
+        self.sha256 = sha256
     }
 }
 
@@ -124,13 +136,17 @@ public struct FilePutPublicResult: Sendable, Equatable {
     public let gasCostWei: String
     public let chunksStored: UInt64
     public let paymentModeUsed: String
+    /// The plaintext's SHA-256, lowercase hex (64 characters). `nil` on daemons
+    /// older than antd 0.17.0, which do not send it.
+    public let sha256: String?
 
-    public init(address: String, storageCostAtto: String, gasCostWei: String, chunksStored: UInt64, paymentModeUsed: String) {
+    public init(address: String, storageCostAtto: String, gasCostWei: String, chunksStored: UInt64, paymentModeUsed: String, sha256: String? = nil) {
         self.address = address
         self.storageCostAtto = storageCostAtto
         self.gasCostWei = gasCostWei
         self.chunksStored = chunksStored
         self.paymentModeUsed = paymentModeUsed
+        self.sha256 = sha256
     }
 }
 
@@ -249,17 +265,22 @@ public struct FinalizeUploadResult: Sendable, Equatable {
     public let chunksStored: Int64
     public let dataMap: String
     public let dataMapAddress: String
+    /// The plaintext's SHA-256, lowercase hex (64 characters). `nil` on daemons
+    /// older than antd 0.17.0, which do not send it.
+    public let sha256: String?
 
     public init(
         address: String,
         chunksStored: Int64,
         dataMap: String = "",
-        dataMapAddress: String = ""
+        dataMapAddress: String = "",
+        sha256: String? = nil
     ) {
         self.address = address
         self.chunksStored = chunksStored
         self.dataMap = dataMap
         self.dataMapAddress = dataMapAddress
+        self.sha256 = sha256
     }
 }
 
@@ -269,17 +290,22 @@ public struct FinalizeMerkleUploadResult: Sendable, Equatable {
     public let chunksStored: Int64
     public let dataMap: String
     public let dataMapAddress: String
+    /// The plaintext's SHA-256, lowercase hex (64 characters). `nil` on daemons
+    /// older than antd 0.17.0, which do not send it.
+    public let sha256: String?
 
     public init(
         address: String,
         chunksStored: Int64,
         dataMap: String = "",
-        dataMapAddress: String = ""
+        dataMapAddress: String = "",
+        sha256: String? = nil
     ) {
         self.address = address
         self.chunksStored = chunksStored
         self.dataMap = dataMap
         self.dataMapAddress = dataMapAddress
+        self.sha256 = sha256
     }
 }
 

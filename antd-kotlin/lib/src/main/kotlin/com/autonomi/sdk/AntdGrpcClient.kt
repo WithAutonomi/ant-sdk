@@ -152,7 +152,7 @@ class AntdGrpcClient internal constructor(
             this.data = ByteString.copyFrom(data)
             this.paymentMode = paymentMode.wire
         })
-        DataPutPublicResult(address = resp.address, chunksStored = resp.chunksStored.toULong(), paymentModeUsed = resp.paymentModeUsed)
+        DataPutPublicResult(address = resp.address, chunksStored = resp.chunksStored.toULong(), paymentModeUsed = resp.paymentModeUsed, sha256 = resp.sha256.ifEmpty { null })
     }
 
     override suspend fun dataGetPublic(address: String): ByteArray = grpc {
@@ -165,7 +165,7 @@ class AntdGrpcClient internal constructor(
             this.data = ByteString.copyFrom(data)
             this.paymentMode = paymentMode.wire
         })
-        DataPutResult(dataMap = resp.dataMap, chunksStored = resp.chunksStored.toULong(), paymentModeUsed = resp.paymentModeUsed)
+        DataPutResult(dataMap = resp.dataMap, chunksStored = resp.chunksStored.toULong(), paymentModeUsed = resp.paymentModeUsed, sha256 = resp.sha256.ifEmpty { null })
     }
 
     override suspend fun dataGet(dataMap: String): ByteArray = grpc {
@@ -347,6 +347,7 @@ class AntdGrpcClient internal constructor(
             gasCostWei = resp.gasCostWei,
             chunksStored = resp.chunksStored.toULong(),
             paymentModeUsed = resp.paymentModeUsed,
+            sha256 = resp.sha256.ifEmpty { null },
         )
     }
 
@@ -366,6 +367,7 @@ class AntdGrpcClient internal constructor(
             gasCostWei = resp.gasCostWei,
             chunksStored = resp.chunksStored.toULong(),
             paymentModeUsed = resp.paymentModeUsed,
+            sha256 = resp.sha256.ifEmpty { null },
         )
     }
 
@@ -536,6 +538,7 @@ class AntdGrpcClient internal constructor(
             chunksStored = resp.chunksStored,
             dataMap = resp.dataMap,
             dataMapAddress = resp.dataMapAddress,
+            sha256 = resp.sha256.ifEmpty { null },
         )
     }
 
@@ -558,6 +561,7 @@ class AntdGrpcClient internal constructor(
             chunksStored = resp.chunksStored,
             dataMap = resp.dataMap,
             dataMapAddress = resp.dataMapAddress,
+            sha256 = resp.sha256.ifEmpty { null },
         )
     }
 

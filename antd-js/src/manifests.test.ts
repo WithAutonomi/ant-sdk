@@ -146,6 +146,7 @@ describe("RestClient manifests", () => {
           dataMap: null,
           exactSize: 10,
           error: null,
+          sha256: null,
         },
         {
           effectiveName: ADDR,
@@ -156,6 +157,7 @@ describe("RestClient manifests", () => {
           dataMap: null,
           exactSize: null,
           error: null,
+          sha256: null,
         },
       ]);
     });
@@ -327,6 +329,7 @@ describe("RestClient manifests", () => {
             dataMap: DM,
             exactSize: 3,
             error: null,
+            sha256: null,
           },
           {
             // One entry's resolve failure is in its error, not a failed call.
@@ -338,6 +341,7 @@ describe("RestClient manifests", () => {
             dataMap: null,
             exactSize: null,
             error: "Record not found: gone",
+            sha256: null,
           },
         ],
       });

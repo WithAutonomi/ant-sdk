@@ -68,6 +68,8 @@ All methods are `async` and return Promises.
 | `dataGet(dataMap)` | `Buffer` | Retrieve private data using a caller-held DataMap |
 | `dataCost(data, { paymentMode? })` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
 
+`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and `FinalizeUploadResult` (from `finalizeUpload` and `finalizeMerkleUpload`) each carry `sha256`: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none (`null`) on older daemons.
+
 ### Chunks
 
 | Method | Returns | Description |
@@ -97,6 +99,8 @@ A manifest ([ADR-0006](https://github.com/WithAutonomi/ant-client/blob/main/docs
 | `decodeManifest(manifest, resolve?)` | `DecodedManifest` | Decode `.ant` bytes. With `resolve` (default `false`) each entry's DataMap is fetched to report `exactSize`; content chunks are not fetched |
 | `decodeManifestLink(link, resolve?)` | `DecodedManifest` | Decode an `ant://manifest/` link, an `ant://` file link or a bare 64-hex address (a file link reads as one public entry with no path, `source: "file_link"`) |
 
+`ManifestEntryInput.sha256` (optional) records the file's plaintext SHA-256 (hex) in the entry, and `ManifestEntryInfo.sha256` reports it (`null` when none); both require antd 0.17.0 or later. The hash is passed through as given and not checked here: a malformed one is the daemon's 400, a `BadRequestError` whose message names the `entries[i]`. Unset or `""` is not sent.
+
 The `.ant` bytes are a `Buffer` both ways (`decodeManifest` also takes a plain `Uint8Array`); the base64 the REST API carries never reaches you. Sizes are `number`. Every unset value is `null`, never `0` or `""`: `size` when none was recorded, `exactSize` until it is known, `link` when it would exceed 1,500 bytes, `dataMap` on public entries and on every built entry. An entry with both sources or neither, or a size that is not a non-negative integer, throws `BadRequestError` before anything is sent; the daemon's own 400 for an invalid entry (a path such as `../x`, a malformed DataMap) is a `BadRequestError` whose message names each `entries[i]`. With `resolve`, one entry that cannot be resolved has its `error` set; the call still succeeds.
 
 ```typescript
@@ -120,9 +124,9 @@ for (const e of decoded.entries) console.log(e.effectiveName, e.exactSize); // n
 ```
 
 ```typescript
-interface ManifestEntryInput { path?: string; size?: number | null; dataMap?: string; address?: string }
+interface ManifestEntryInput { path?: string; size?: number | null; dataMap?: string; address?: string; sha256?: string }
 interface BuildManifestOptions { name?: string; torrentInfoHashes?: string[]; embedRoots?: boolean }
-interface ManifestEntryInfo { effectiveName: string; path: string | null; size: number | null; kind: string /* "embedded" | "public" */; contentAddress: string; dataMap: string | null; exactSize: number | null; error: string | null }
+interface ManifestEntryInfo { effectiveName: string; path: string | null; size: number | null; kind: string /* "embedded" | "public" */; contentAddress: string; dataMap: string | null; exactSize: number | null; error: string | null; sha256?: string | null }
 interface BuiltManifest { manifest: Buffer; link: string | null; entries: ManifestEntryInfo[] /* sorted by effective name */ }
 interface DecodedManifest { source: string /* "manifest" | "file_link" */; name: string | null; torrentInfoHashV1: string | null; torrentInfoHashV2: string | null; entries: ManifestEntryInfo[] }
 ```
@@ -201,12 +205,12 @@ interface HealthStatus {
 interface PutResult { cost: string; address: string }
 
 // Data put results (DataMap shape)
-interface DataPutResult { dataMap: string; chunksStored: number; paymentModeUsed: string }
-interface DataPutPublicResult { address: string; chunksStored: number; paymentModeUsed: string }
+interface DataPutResult { dataMap: string; chunksStored: number; paymentModeUsed: string; sha256?: string | null }
+interface DataPutPublicResult { address: string; chunksStored: number; paymentModeUsed: string; sha256?: string | null }
 
 // File put results
-interface FilePutResult { dataMap: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string }
-interface FilePutPublicResult { address: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string }
+interface FilePutResult { dataMap: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string; sha256?: string | null }
+interface FilePutPublicResult { address: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string; sha256?: string | null }
 
 // Cost estimate
 interface UploadCostEstimate { cost: string; fileSize: number; chunkCount: number; estimatedGasCostWei: string; paymentMode: string }

@@ -25,6 +25,8 @@ public sealed partial class AntdRestClient
                 size = e.Size,
                 data_map = ManifestWire.NullIfEmpty(e.DataMap),
                 address = ManifestWire.NullIfEmpty(e.Address),
+                // Passed through as given; the daemon validates it.
+                sha256 = ManifestWire.NullIfEmpty(e.Sha256),
             }).ToList(),
         };
         var resp = await PostJsonAsync<ManifestBuildDto>("/v1/manifests/build", body);
@@ -66,7 +68,8 @@ public sealed partial class AntdRestClient
             e.ContentAddress ?? "",
             ManifestWire.NullIfEmpty(e.DataMap),
             e.ExactSize,
-            ManifestWire.NullIfEmpty(e.Error))).ToList() ?? [];
+            ManifestWire.NullIfEmpty(e.Error),
+            ManifestWire.NullIfEmpty(e.Sha256))).ToList() ?? [];
 
     // Sizes are JSON numbers, read straight into ulong?: an absent size is
     // null, never 0.
@@ -79,7 +82,8 @@ public sealed partial class AntdRestClient
         [property: JsonPropertyName("content_address")] string? ContentAddress = null,
         [property: JsonPropertyName("data_map")] string? DataMap = null,
         [property: JsonPropertyName("exact_size")] ulong? ExactSize = null,
-        [property: JsonPropertyName("error")] string? Error = null);
+        [property: JsonPropertyName("error")] string? Error = null,
+        [property: JsonPropertyName("sha256")] string? Sha256 = null);
 
     private sealed record ManifestBuildDto(
         [property: JsonPropertyName("manifest")] string? Manifest = null,

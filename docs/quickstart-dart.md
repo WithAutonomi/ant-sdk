@@ -170,6 +170,8 @@ for (final e in decoded.entries) {
 
 `decodeManifest(bytes, resolve: ...)` takes raw `.ant` bytes (`Uint8List`). Use `dataMap:` instead of `address:` for an embedded entry, and `embedRoots: false` to keep shrunk DataMaps as given.
 
+Every upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult` and, for external-signer uploads, `FinalizeUploadResult`) also has `String? sha256` (`null` when none): the plaintext's SHA-256 (hex). To record it in a manifest, pass it as the entry's `sha256`: `ManifestEntryInput(sha256: hex)` records one, and `ManifestEntryInfo.sha256` reads it back. Requires antd 0.17.0 or later; the SDK sends it only when set and does not check it.
+
 Runnable example: `antd-dart/example/10_manifests.dart`. Its two uploads pay; the manifest calls do not.
 
 ```bash

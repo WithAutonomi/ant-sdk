@@ -216,7 +216,7 @@ class AntdRestClient(
             put("payment_mode", paymentMode.wire)
         }.toString()
         val resp = postJson<DataPutPublicDto>("/v1/data/public", body)
-        return DataPutPublicResult(resp.address, resp.chunksStored, resp.paymentModeUsed)
+        return DataPutPublicResult(resp.address, resp.chunksStored, resp.paymentModeUsed, resp.sha256?.ifEmpty { null })
     }
 
     override suspend fun dataGetPublic(address: String): ByteArray {
@@ -230,7 +230,7 @@ class AntdRestClient(
             put("payment_mode", paymentMode.wire)
         }.toString()
         val resp = postJson<DataPutDto>("/v1/data", body)
-        return DataPutResult(resp.dataMap, resp.chunksStored, resp.paymentModeUsed)
+        return DataPutResult(resp.dataMap, resp.chunksStored, resp.paymentModeUsed, resp.sha256?.ifEmpty { null })
     }
 
     override suspend fun dataGet(dataMap: String): ByteArray {
@@ -384,6 +384,7 @@ class AntdRestClient(
             gasCostWei = resp.gasCostWei,
             chunksStored = resp.chunksStored,
             paymentModeUsed = resp.paymentModeUsed,
+            sha256 = resp.sha256?.ifEmpty { null },
         )
     }
 
@@ -407,6 +408,7 @@ class AntdRestClient(
             gasCostWei = resp.gasCostWei,
             chunksStored = resp.chunksStored,
             paymentModeUsed = resp.paymentModeUsed,
+            sha256 = resp.sha256?.ifEmpty { null },
         )
     }
 
@@ -556,6 +558,7 @@ class AntdRestClient(
             chunksStored = resp.chunksStored,
             dataMap = resp.dataMap,
             dataMapAddress = resp.dataMapAddress,
+            sha256 = resp.sha256?.ifEmpty { null },
         )
     }
 
@@ -579,6 +582,7 @@ class AntdRestClient(
             chunksStored = resp.chunksStored,
             dataMap = resp.dataMap,
             dataMapAddress = resp.dataMapAddress,
+            sha256 = resp.sha256?.ifEmpty { null },
         )
     }
 

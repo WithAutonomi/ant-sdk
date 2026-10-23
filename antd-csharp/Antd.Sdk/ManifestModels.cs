@@ -30,12 +30,33 @@ namespace Antd.Sdk;
 /// it: the manifest is the key to the file.
 /// </param>
 /// <param name="Address">A public file's DataMap address (hex, 32 bytes).</param>
+/// <param name="Sha256">
+/// The plaintext's SHA-256 to record (hex), passed through as given; the
+/// daemon validates it (requires antd 0.17.0 or later). <c>null</c> or empty:
+/// none is recorded and none is sent. Set it with
+/// <c>entry with { Sha256 = "..." }</c>.
+/// </param>
 public sealed record ManifestEntryInput(
     string? Path = null,
     ulong? Size = null,
     string? DataMap = null,
-    string? Address = null)
+    string? Address = null,
+    string? Sha256 = null)
 {
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string? Path, out ulong? Size, out string? DataMap, out string? Address)
+    {
+        Path = this.Path;
+        Size = this.Size;
+        DataMap = this.DataMap;
+        Address = this.Address;
+    }
+
     /// <summary>An entry that embeds <paramref name="dataMap"/> (hex).</summary>
     public static ManifestEntryInput Embedded(string dataMap, string? path = null, ulong? size = null) =>
         new(path, size, DataMap: dataMap);
@@ -80,6 +101,10 @@ public sealed record BuildManifestOptions(
 /// resolving decode. <c>null</c> when neither gave one.
 /// </param>
 /// <param name="Error">Why a resolving decode failed for this entry; <c>null</c> when it did not.</param>
+/// <param name="Sha256">
+/// The plaintext's SHA-256 (lowercase hex) recorded in the manifest;
+/// <c>null</c> when none is (requires antd 0.17.0 or later).
+/// </param>
 public sealed record ManifestEntryInfo(
     string EffectiveName,
     string? Path,
@@ -88,7 +113,27 @@ public sealed record ManifestEntryInfo(
     string ContentAddress,
     string? DataMap,
     ulong? ExactSize,
-    string? Error);
+    string? Error,
+    string? Sha256 = null)
+{
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string EffectiveName, out string? Path, out ulong? Size, out string Kind, out string ContentAddress, out string? DataMap, out ulong? ExactSize, out string? Error)
+    {
+        EffectiveName = this.EffectiveName;
+        Path = this.Path;
+        Size = this.Size;
+        Kind = this.Kind;
+        ContentAddress = this.ContentAddress;
+        DataMap = this.DataMap;
+        ExactSize = this.ExactSize;
+        Error = this.Error;
+    }
+}
 
 /// <summary>The result of <c>BuildManifestAsync</c>.</summary>
 /// <param name="Manifest">The raw <c>.ant</c> bytes.</param>

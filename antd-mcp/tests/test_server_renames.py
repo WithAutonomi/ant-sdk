@@ -67,6 +67,7 @@ async def test_store_data_public_calls_data_put_public_with_typed_payment_mode(m
         "address": "0xpublic",
         "chunks_stored": 3,
         "payment_mode_used": "single",
+        "sha256": None,
         "network": "test-net",
     }
 
@@ -148,6 +149,7 @@ async def test_upload_file_public_calls_file_put_public(mock_client):
         "gas_cost_wei": "42",
         "chunks_stored": 3,
         "payment_mode_used": "auto",
+        "sha256": None,
         "network": "test-net",
     }
 

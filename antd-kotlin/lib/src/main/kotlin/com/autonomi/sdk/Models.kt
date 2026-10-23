@@ -51,6 +51,11 @@ data class DataPutResult(
     val dataMap: String,
     val chunksStored: ULong = 0u,
     val paymentModeUsed: String = "",
+    /**
+     * The plaintext's SHA-256 (lowercase hex, 64 characters). Requires antd
+     * 0.17.0 or later; null on older daemons.
+     */
+    val sha256: String? = null,
 )
 
 /**
@@ -63,6 +68,11 @@ data class DataPutPublicResult(
     val address: String,
     val chunksStored: ULong = 0u,
     val paymentModeUsed: String = "",
+    /**
+     * The plaintext's SHA-256 (lowercase hex, 64 characters). Requires antd
+     * 0.17.0 or later; null on older daemons.
+     */
+    val sha256: String? = null,
 )
 
 /**
@@ -75,6 +85,11 @@ data class FilePutResult(
     val gasCostWei: String,
     val chunksStored: ULong,
     val paymentModeUsed: String,
+    /**
+     * The plaintext's SHA-256 (lowercase hex, 64 characters). Requires antd
+     * 0.17.0 or later; null on older daemons.
+     */
+    val sha256: String? = null,
 )
 
 /**
@@ -87,6 +102,11 @@ data class FilePutPublicResult(
     val gasCostWei: String,
     val chunksStored: ULong,
     val paymentModeUsed: String,
+    /**
+     * The plaintext's SHA-256 (lowercase hex, 64 characters). Requires antd
+     * 0.17.0 or later; null on older daemons.
+     */
+    val sha256: String? = null,
 )
 
 /** Wallet address response. */
@@ -140,6 +160,11 @@ data class FinalizeUploadResult(
     @SerialName("chunks_stored") val chunksStored: Long,
     @SerialName("data_map") val dataMap: String = "",
     @SerialName("data_map_address") val dataMapAddress: String = "",
+    /**
+     * The plaintext's SHA-256 (lowercase hex, 64 characters). Requires antd
+     * 0.17.0 or later; null on older daemons.
+     */
+    @SerialName("sha256") val sha256: String? = null,
 )
 
 /**
@@ -152,6 +177,11 @@ data class FinalizeMerkleUploadResult(
     @SerialName("chunks_stored") val chunksStored: Long,
     @SerialName("data_map") val dataMap: String = "",
     @SerialName("data_map_address") val dataMapAddress: String = "",
+    /**
+     * The plaintext's SHA-256 (lowercase hex, 64 characters). Requires antd
+     * 0.17.0 or later; null on older daemons.
+     */
+    @SerialName("sha256") val sha256: String? = null,
 )
 
 /**
@@ -572,6 +602,7 @@ internal data class DataPutPublicDto(
     val address: String,
     @SerialName("chunks_stored") val chunksStored: ULong = 0u,
     @SerialName("payment_mode_used") val paymentModeUsed: String = "",
+    val sha256: String? = null,
 )
 
 @Serializable
@@ -579,6 +610,7 @@ internal data class DataPutDto(
     @SerialName("data_map") val dataMap: String,
     @SerialName("chunks_stored") val chunksStored: ULong = 0u,
     @SerialName("payment_mode_used") val paymentModeUsed: String = "",
+    val sha256: String? = null,
 )
 
 @Serializable
@@ -588,6 +620,7 @@ internal data class FilePutPublicDto(
     @SerialName("gas_cost_wei") val gasCostWei: String,
     @SerialName("chunks_stored") val chunksStored: ULong,
     @SerialName("payment_mode_used") val paymentModeUsed: String,
+    val sha256: String? = null,
 )
 
 @Serializable
@@ -597,6 +630,7 @@ internal data class FilePutDto(
     @SerialName("gas_cost_wei") val gasCostWei: String,
     @SerialName("chunks_stored") val chunksStored: ULong,
     @SerialName("payment_mode_used") val paymentModeUsed: String,
+    val sha256: String? = null,
 )
 
 @Serializable
@@ -676,6 +710,7 @@ internal data class FinalizeUploadDto(
     @SerialName("chunks_stored") val chunksStored: Long = 0,
     @SerialName("data_map") val dataMap: String = "",
     @SerialName("data_map_address") val dataMapAddress: String = "",
+    val sha256: String? = null,
 )
 
 @Serializable

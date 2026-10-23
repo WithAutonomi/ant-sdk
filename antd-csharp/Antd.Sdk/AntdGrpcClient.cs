@@ -124,7 +124,7 @@ public sealed partial class AntdGrpcClient : IAntdClient
                 Data = ByteString.CopyFrom(data),
                 PaymentMode = paymentMode.ToWire(),
             });
-            return new DataPutResult(resp.DataMap, resp.ChunksStored, resp.PaymentModeUsed);
+            return new DataPutResult(resp.DataMap, resp.ChunksStored, resp.PaymentModeUsed, ManifestWire.NullIfEmpty(resp.Sha256));
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
@@ -148,7 +148,7 @@ public sealed partial class AntdGrpcClient : IAntdClient
                 Data = ByteString.CopyFrom(data),
                 PaymentMode = paymentMode.ToWire(),
             });
-            return new DataPutPublicResult(resp.Address, resp.ChunksStored, resp.PaymentModeUsed);
+            return new DataPutPublicResult(resp.Address, resp.ChunksStored, resp.PaymentModeUsed, ManifestWire.NullIfEmpty(resp.Sha256));
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
@@ -360,7 +360,7 @@ public sealed partial class AntdGrpcClient : IAntdClient
             });
             return new FilePutResult(
                 resp.DataMap, resp.StorageCostAtto, resp.GasCostWei,
-                resp.ChunksStored, resp.PaymentModeUsed);
+                resp.ChunksStored, resp.PaymentModeUsed, ManifestWire.NullIfEmpty(resp.Sha256));
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
@@ -385,7 +385,7 @@ public sealed partial class AntdGrpcClient : IAntdClient
             });
             return new FilePutPublicResult(
                 resp.Address, resp.StorageCostAtto, resp.GasCostWei,
-                resp.ChunksStored, resp.PaymentModeUsed);
+                resp.ChunksStored, resp.PaymentModeUsed, ManifestWire.NullIfEmpty(resp.Sha256));
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
@@ -488,7 +488,8 @@ public sealed partial class AntdGrpcClient : IAntdClient
     }
 
     private static FinalizeUploadResult MapFinalizeResponse(FinalizeUploadResponse resp) =>
-        new(resp.Address, (long)resp.ChunksStored, resp.DataMap, resp.DataMapAddress);
+        new(resp.Address, (long)resp.ChunksStored, resp.DataMap, resp.DataMapAddress,
+            ManifestWire.NullIfEmpty(resp.Sha256));
 
     public async Task<PrepareUploadResult> PrepareUploadAsync(string path, string? visibility = null)
     {
@@ -543,7 +544,8 @@ public sealed partial class AntdGrpcClient : IAntdClient
                 WinnerPoolHash = winnerPoolHash,
             });
             return new FinalizeMerkleUploadResult(
-                resp.Address, (long)resp.ChunksStored, resp.DataMap, resp.DataMapAddress);
+                resp.Address, (long)resp.ChunksStored, resp.DataMap, resp.DataMapAddress,
+                ManifestWire.NullIfEmpty(resp.Sha256));
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }

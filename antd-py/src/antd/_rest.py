@@ -47,6 +47,8 @@ from .models import (
 )
 from . import _manifests
 
+_opt_str = _manifests._opt_str  # absent, null and "" all read as None
+
 
 def _health_status_from_json(j: dict) -> HealthStatus:
     """Parse a /health JSON response. Diagnostic fields default to empty when
@@ -71,6 +73,7 @@ def _parse_file_put_result(j: dict) -> FilePutResult:
         gas_cost_wei=j.get("gas_cost_wei", ""),
         chunks_stored=int(j.get("chunks_stored", 0)),
         payment_mode_used=j.get("payment_mode_used", ""),
+        sha256=_opt_str(j.get("sha256")),
     )
 
 
@@ -82,6 +85,7 @@ def _parse_file_put_public_result(j: dict) -> FilePutPublicResult:
         gas_cost_wei=j.get("gas_cost_wei", ""),
         chunks_stored=int(j.get("chunks_stored", 0)),
         payment_mode_used=j.get("payment_mode_used", ""),
+        sha256=_opt_str(j.get("sha256")),
     )
 
 
@@ -90,6 +94,7 @@ def _parse_data_put_result(j: dict) -> DataPutResult:
         data_map=j.get("data_map", ""),
         chunks_stored=int(j.get("chunks_stored", 0)),
         payment_mode_used=j.get("payment_mode_used", ""),
+        sha256=_opt_str(j.get("sha256")),
     )
 
 
@@ -98,6 +103,7 @@ def _parse_data_put_public_result(j: dict) -> DataPutPublicResult:
         address=j.get("address", ""),
         chunks_stored=int(j.get("chunks_stored", 0)),
         payment_mode_used=j.get("payment_mode_used", ""),
+        sha256=_opt_str(j.get("sha256")),
     )
 
 
@@ -242,6 +248,7 @@ def _parse_finalize_upload_result(j: dict) -> FinalizeUploadResult:
         chunks_stored=int(j.get("chunks_stored", 0) or 0),
         data_map=j.get("data_map") or "",
         data_map_address=j.get("data_map_address") or "",
+        sha256=_opt_str(j.get("sha256")),
     )
 
 

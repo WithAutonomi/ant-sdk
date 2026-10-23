@@ -111,6 +111,7 @@ defmodule Antd.Manifests do
     if(given?(e.data_map), do: %{data_map: e.data_map}, else: %{address: e.address})
     |> put_given(:path, presence(e.path))
     |> put_given(:size, e.size)
+    |> put_given(:sha256, presence(e.sha256))
   end
 
   defp put_given(map, _key, nil), do: map
@@ -173,7 +174,8 @@ defmodule Antd.Manifests do
       content_address: str(e["content_address"]),
       data_map: presence(e["data_map"]),
       exact_size: json_size(e["exact_size"]),
-      error: presence(e["error"])
+      error: presence(e["error"]),
+      sha256: presence(e["sha256"])
     }
   end
 
@@ -197,11 +199,12 @@ defmodule Antd.Manifests do
     }
   end
 
-  # `path` and `size` are proto3 `optional`: `nil` leaves them unset.
+  # `path`, `size` and `sha256` are proto3 `optional`: `nil` leaves them unset.
   defp entry_proto(%Antd.ManifestEntryInput{} = e) do
     %Antd.V1.ManifestEntryInput{
       path: presence(e.path),
       size: e.size,
+      sha256: presence(e.sha256),
       source: if(given?(e.data_map), do: {:data_map, e.data_map}, else: {:address, e.address})
     }
   end
@@ -248,7 +251,8 @@ defmodule Antd.Manifests do
       content_address: e.content_address,
       data_map: presence(e.data_map),
       exact_size: e.exact_size,
-      error: presence(e.error)
+      error: presence(e.error),
+      sha256: presence(e.sha256)
     }
   end
 

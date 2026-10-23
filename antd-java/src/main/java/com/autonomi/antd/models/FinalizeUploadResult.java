@@ -17,18 +17,26 @@ package com.autonomi.antd.models;
  * @param dataMapAddress hex retrieval address of the DataMap chunk; set when
  *                       prepare was called with {@code visibility="public"},
  *                       empty otherwise
+ * @param sha256         the plaintext's SHA-256 (hex, lowercase); {@code null}
+ *                       on antd before 0.17.0
  */
 public record FinalizeUploadResult(
         String address,
         long chunksStored,
         String dataMap,
-        String dataMapAddress) {
+        String dataMapAddress,
+        String sha256) {
 
     /**
      * Backward-compatible constructor for callers that only need the original
      * two fields. {@code dataMap} and {@code dataMapAddress} default to empty.
      */
     public FinalizeUploadResult(String address, long chunksStored) {
-        this(address, chunksStored, "", "");
+        this(address, chunksStored, "", "", null);
+    }
+
+    /** Backward-compatible constructor without {@code sha256} (defaults to {@code null}). */
+    public FinalizeUploadResult(String address, long chunksStored, String dataMap, String dataMapAddress) {
+        this(address, chunksStored, dataMap, dataMapAddress, null);
     }
 }

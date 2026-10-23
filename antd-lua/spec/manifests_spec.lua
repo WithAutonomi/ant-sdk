@@ -309,6 +309,63 @@ describe("manifest API", function()
             assert.are.equal(0, #requests)
         end)
 
+        it("sends an entry's sha256 as given, and leaves it out when unset", function()
+            local SHA = string.rep("ab", 32)
+            ok(client:build_manifest({
+                { path = "a.txt", size = 10, address = "11", sha256 = SHA },
+                { address = "22" },
+                { address = "33", sha256 = "" },
+                -- passed through untouched: no case, hex or length check
+                { address = "44", sha256 = "ZZ" },
+            }))
+            local entries = last_request().body.entries
+            assert.are.same({ path = "a.txt", size = 10, address = "11", sha256 = SHA }, entries[1])
+            assert.are.same({ address = "22" }, entries[2])
+            assert.are.same({ address = "33" }, entries[3])
+            assert.are.same({ address = "44", sha256 = "ZZ" }, entries[4])
+            assert.is_nil(last_request().raw:find('"sha256":null', 1, true))
+            assert.is_nil(last_request().raw:find('"sha256":""', 1, true))
+        end)
+
+        it("reads an entry's sha256 from the build response, nil when absent or empty", function()
+            local SHA = string.rep("cd", 32)
+            route("POST", "/v1/manifests/build", 200, built_body({
+                entries = {
+                    { effective_name = "a", path = "a", kind = "public", content_address = "a",
+                      sha256 = SHA },
+                    { effective_name = "b", path = "b", kind = "public", content_address = "b" },
+                    { effective_name = "c", path = "c", kind = "public", content_address = "c",
+                      sha256 = "" },
+                    { effective_name = "d", path = "d", kind = "public", content_address = "d",
+                      sha256 = cjson.null },
+                },
+            }))
+            local res = ok(client:build_manifest({ { address = "11" } }))
+            assert.are.equal(SHA, res.entries[1].sha256)
+            assert.is_nil(res.entries[2].sha256)
+            assert.is_nil(res.entries[3].sha256)
+            assert.is_nil(res.entries[4].sha256)
+        end)
+
+        it("refuses a sha256 that is not a string before sending", function()
+            local err = refused(client:build_manifest({ { address = "11", sha256 = 5 } }))
+            assert.are.equal("1 invalid entries: entries[0]: sha256 must be a string", err.message)
+            assert.are.equal(0, #requests)
+        end)
+
+        it("maps the daemon's 400 for a bad sha256 onto bad_request, keeping its message", function()
+            for _, msg in ipairs({
+                "1 invalid entries: entries[0]: invalid hex sha256: Odd number of digits",
+                "1 invalid entries: entries[0]: sha256 must be 32 bytes, got 1",
+            }) do
+                route("POST", "/v1/manifests/build", 400, { error = "Bad request: " .. msg, code = "BAD_REQUEST" })
+                local err = refused(client:build_manifest({ { address = ADDR, sha256 = "zz" } }))
+                assert.are.equal(400, err.status_code)
+                assert.truthy(err.message:find(msg, 1, true))
+                assert.is_true(antd.is_antd_error(err))
+            end
+        end)
+
         it("reads an absent link as nil", function()
             route("POST", "/v1/manifests/build", 200, built_body({ link = cjson.null }))
             assert.is_nil(ok(client:build_manifest({ { address = "11" } })).link)
@@ -413,6 +470,30 @@ describe("manifest API", function()
             route("POST", "/v1/manifests/decode", 400, { error = msg, code = "BAD_REQUEST" })
             local err = refused(client:decode_manifest("nope"))
             assert.are.equal(msg, err.message)
+        end)
+    end)
+
+    describe("decode sha256", function()
+        it("reads an entry's sha256 from a decode, nil when absent or empty", function()
+            local SHA = string.rep("ef", 32)
+            route("POST", "/v1/manifests/decode", 200, {
+                source = "manifest",
+                entries = {
+                    { effective_name = "a", path = "a", kind = "public", content_address = "a",
+                      sha256 = SHA },
+                    { effective_name = "b", path = "b", kind = "public", content_address = "b" },
+                    { effective_name = "c", path = "c", kind = "public", content_address = "c",
+                      sha256 = "" },
+                },
+            })
+            for _, d in ipairs({
+                ok(client:decode_manifest(HEADER)),
+                ok(client:decode_manifest_link("ant://manifest/wUFOVAE")),
+            }) do
+                assert.are.equal(SHA, d.entries[1].sha256)
+                assert.is_nil(d.entries[2].sha256)
+                assert.is_nil(d.entries[3].sha256)
+            end
         end)
     end)
 

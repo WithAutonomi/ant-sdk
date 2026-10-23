@@ -48,6 +48,12 @@ data class ManifestEntryInput(
     val dataMap: String? = null,
     /** A public file's DataMap address (hex, 32 bytes), as `dataPutPublic` / `filePutPublic` return it. */
     val address: String? = null,
+    /**
+     * The plaintext's SHA-256 to record (hex), passed through as given: the
+     * daemon validates it (a bad value is a 400). Null or empty: none is
+     * sent. Requires antd 0.17.0 or later.
+     */
+    val sha256: String? = null,
 )
 
 /** The optional parts of an [IAntdClient.buildManifest] call. */
@@ -93,6 +99,11 @@ data class ManifestEntryInfo(
     val exactSize: ULong? = null,
     /** Why a resolving decode failed for this entry; null when it did not. */
     val error: String? = null,
+    /**
+     * The plaintext's SHA-256 (lowercase hex) the manifest records for this
+     * entry; null when it records none. Requires antd 0.17.0 or later.
+     */
+    val sha256: String? = null,
 )
 
 /** The result of [IAntdClient.buildManifest]. */
@@ -195,6 +206,7 @@ internal fun manifestBuildBody(entries: List<ManifestEntryInput>, options: Build
                     // A ULong is not a Number; JsonPrimitive(ULong) writes the exact u64.
                     e.size?.let { put("size", JsonPrimitive(it)) }
                     if (!e.dataMap.isNullOrEmpty()) put("data_map", e.dataMap) else put("address", e.address)
+                    e.sha256?.takeIf { it.isNotEmpty() }?.let { put("sha256", it) }
                 }
             }
         }
@@ -228,6 +240,7 @@ internal data class ManifestEntryInfoDto(
     @SerialName("data_map") val dataMap: String? = null,
     @SerialName("exact_size") val exactSize: ULong? = null,
     val error: String? = null,
+    val sha256: String? = null,
 )
 
 @Serializable
@@ -256,6 +269,7 @@ internal fun ManifestEntryInfoDto.toManifestEntryInfo() = ManifestEntryInfo(
     dataMap = dataMap?.ifEmpty { null },
     exactSize = exactSize,
     error = error?.ifEmpty { null },
+    sha256 = sha256?.ifEmpty { null },
 )
 
 /** @throws InternalException if the daemon's `manifest` is not valid base64. */
@@ -294,6 +308,7 @@ internal fun buildManifestRequestOf(inputs: List<ManifestEntryInput>, options: B
                 e.path?.takeIf { it.isNotEmpty() }?.let { path = it }
                 e.size?.let { size = it.toLong() }
                 if (!e.dataMap.isNullOrEmpty()) dataMap = e.dataMap else address = e.address.orEmpty()
+                e.sha256?.takeIf { it.isNotEmpty() }?.let { sha256 = it }
             }
         }
     }
@@ -307,6 +322,7 @@ internal fun Manifests.ManifestEntryInfo.toManifestEntryInfo() = ManifestEntryIn
     dataMap = dataMap.ifEmpty { null },
     exactSize = if (hasExactSize()) exactSize.toULong() else null,
     error = error.ifEmpty { null },
+    sha256 = sha256.ifEmpty { null },
 )
 
 internal fun Manifests.BuildManifestResponse.toBuiltManifest() = BuiltManifest(

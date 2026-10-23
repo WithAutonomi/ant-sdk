@@ -16,7 +16,7 @@ const manifests = @import("manifests.zig");
 // =============================================================================
 
 /// One request/response exchange with the mock daemon.
-const Exchange = struct {
+pub const Exchange = struct {
     status: std.http.Status = .ok,
     /// The JSON body the mock daemon answers with.
     body: []const u8,
@@ -28,16 +28,16 @@ const Exchange = struct {
     body_buf: [16 * 1024]u8 = undefined,
     body_len: usize = 0,
 
-    fn target(self: *const Exchange) []const u8 {
+    pub fn target(self: *const Exchange) []const u8 {
         return self.target_buf[0..self.target_len];
     }
 
-    fn requestBody(self: *const Exchange) []const u8 {
+    pub fn requestBody(self: *const Exchange) []const u8 {
         return self.body_buf[0..self.body_len];
     }
 };
 
-const MockDaemon = struct {
+pub const MockDaemon = struct {
     server: std.net.Server,
     thread: std.Thread,
     exchanges: []Exchange,
@@ -49,7 +49,7 @@ const MockDaemon = struct {
 
     /// Listen on an ephemeral loopback port and answer `exchanges` in order,
     /// one per connection. `self` must not move until `stop`.
-    fn start(self: *MockDaemon, exchanges: []Exchange) !void {
+    pub fn start(self: *MockDaemon, exchanges: []Exchange) !void {
         const address = try std.net.Address.parseIp("127.0.0.1", 0);
         self.* = .{
             .server = try address.listen(.{ .reuse_address = true }),
@@ -62,7 +62,7 @@ const MockDaemon = struct {
         self.thread = try std.Thread.spawn(.{}, serve, .{self});
     }
 
-    fn url(self: *const MockDaemon) []const u8 {
+    pub fn url(self: *const MockDaemon) []const u8 {
         return self.url_buf[0..self.url_len];
     }
 
@@ -96,7 +96,7 @@ const MockDaemon = struct {
     /// Stop serving; a second call does nothing. A connection of our own
     /// wakes an `accept` still waiting for a request the test never made, so
     /// the join cannot hang.
-    fn stop(self: *MockDaemon) void {
+    pub fn stop(self: *MockDaemon) void {
         if (self.stopped) return;
         self.stopped = true;
         if (std.net.tcpConnectToAddress(self.server.listen_address)) |stream| {
@@ -108,11 +108,11 @@ const MockDaemon = struct {
 };
 
 /// Parse a recorded request body as a JSON value for field checks.
-fn parseRequest(ex: *const Exchange) !std.json.Parsed(std.json.Value) {
+pub fn parseRequest(ex: *const Exchange) !std.json.Parsed(std.json.Value) {
     return std.json.parseFromSlice(std.json.Value, testing.allocator, ex.requestBody(), .{});
 }
 
-fn expectString(obj: std.json.ObjectMap, key: []const u8, want: []const u8) !void {
+pub fn expectString(obj: std.json.ObjectMap, key: []const u8, want: []const u8) !void {
     const v = obj.get(key) orelse {
         std.debug.print("missing request field {s}\n", .{key});
         return error.TestExpectedEqual;
@@ -123,7 +123,7 @@ fn expectString(obj: std.json.ObjectMap, key: []const u8, want: []const u8) !voi
     }
 }
 
-fn expectBool(obj: std.json.ObjectMap, key: []const u8, want: bool) !void {
+pub fn expectBool(obj: std.json.ObjectMap, key: []const u8, want: bool) !void {
     const v = obj.get(key) orelse {
         std.debug.print("missing request field {s}\n", .{key});
         return error.TestExpectedEqual;
@@ -134,7 +134,7 @@ fn expectBool(obj: std.json.ObjectMap, key: []const u8, want: bool) !void {
     }
 }
 
-fn expectInteger(obj: std.json.ObjectMap, key: []const u8, want: i64) !void {
+pub fn expectInteger(obj: std.json.ObjectMap, key: []const u8, want: i64) !void {
     const v = obj.get(key) orelse {
         std.debug.print("missing request field {s}\n", .{key});
         return error.TestExpectedEqual;
@@ -145,7 +145,7 @@ fn expectInteger(obj: std.json.ObjectMap, key: []const u8, want: i64) !void {
     }
 }
 
-fn expectAbsent(obj: std.json.ObjectMap, key: []const u8) !void {
+pub fn expectAbsent(obj: std.json.ObjectMap, key: []const u8) !void {
     if (obj.get(key) != null) {
         std.debug.print("unexpected request field {s}\n", .{key});
         return error.TestUnexpectedResult;

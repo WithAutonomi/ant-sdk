@@ -62,6 +62,7 @@ class DataPutResult:
     data_map: str           # hex
     chunks_stored: int = 0
     payment_mode_used: str = ""    # "auto", "merkle", or "single"
+    sha256: str | None = None      # the plaintext's SHA-256 (hex); None on antd < 0.17.0
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class DataPutPublicResult:
     address: str            # hex
     chunks_stored: int = 0
     payment_mode_used: str = ""
+    sha256: str | None = None      # the plaintext's SHA-256 (hex); None on antd < 0.17.0
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,7 @@ class FilePutResult:
     gas_cost_wei: str          # decimal string
     chunks_stored: int         # number of chunks stored on the network
     payment_mode_used: str     # "auto", "merkle", or "single"
+    sha256: str | None = None  # the plaintext's SHA-256 (hex); None on antd < 0.17.0
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,7 @@ class FilePutPublicResult:
     gas_cost_wei: str          # decimal string
     chunks_stored: int         # number of chunks stored on the network
     payment_mode_used: str     # "auto", "merkle", or "single"
+    sha256: str | None = None  # the plaintext's SHA-256 (hex); None on antd < 0.17.0
 
 
 @dataclass(frozen=True)
@@ -166,6 +170,7 @@ class FinalizeUploadResult:
     chunks_stored: int = 0
     data_map: str = ""           # hex-encoded msgpack DataMap (always returned)
     data_map_address: str = ""   # set when prepare used visibility="public" (the DataMap chunk was paid + stored in the same external-signer batch)
+    sha256: str | None = None    # the plaintext's SHA-256 (hex); None on antd < 0.17.0
 
 
 @dataclass(frozen=True)
@@ -222,11 +227,15 @@ class ManifestEntryInput:
     - ``size``: the plaintext size to record, as given (the creator's claim).
       ``None``: none is recorded; readers take the exact size from an
       embedded root DataMap.
+    - ``sha256``: the plaintext's SHA-256 (hex) to record, passed through as
+      given (the daemon validates it and answers 400 for a malformed one).
+      ``None`` or ``""``: none is recorded. Needs antd 0.17.0 or later.
     """
     data_map: str | None = None
     address: str | None = None
     path: str | None = None
     size: int | None = None
+    sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -246,6 +255,9 @@ class ManifestEntryInfo:
     # resolving decode.
     exact_size: int | None = None
     error: str | None = None          # why a resolving decode failed for this entry
+    # The plaintext's SHA-256 (hex) the manifest records for the entry; None
+    # when it records none or the daemon is older than 0.17.0.
+    sha256: str | None = None
 
 
 @dataclass(frozen=True)

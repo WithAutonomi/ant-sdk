@@ -29,7 +29,8 @@ use GuzzleHttp\Promise\PromiseInterface;
  * size is null, never 0.
  *
  * Mixed into {@see AntdClient} (it uses the client's private doJson() and
- * doJsonAsync()). Needs antd 0.16.0 or later.
+ * doJsonAsync()). Needs antd 0.16.0 or later; an entry's `sha256` needs antd
+ * 0.17.0 or later.
  */
 trait ManifestMethods
 {
@@ -177,6 +178,9 @@ trait ManifestMethods
             if ($entry->size !== null) {
                 $item['size'] = $entry->size;
             }
+            if ($entry->sha256 !== null && $entry->sha256 !== '') {
+                $item['sha256'] = $entry->sha256;
+            }
             if ($hasDataMap) {
                 $item['data_map'] = $entry->dataMap;
             } else {
@@ -284,6 +288,7 @@ trait ManifestMethods
                 dataMap: self::manifestOptStr($e, 'data_map'),
                 exactSize: self::manifestOptSize($e, 'exact_size'),
                 error: self::manifestOptStr($e, 'error'),
+                sha256: self::manifestOptStr($e, 'sha256'),
             );
         }
         return $out;

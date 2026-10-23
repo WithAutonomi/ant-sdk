@@ -114,6 +114,8 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 | `client:data_get(data_map)` | Retrieve private data using a caller-held DataMap |
 | `client:data_cost(data, payment_mode)` | Estimate storage cost — returns a table with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
 
+`DataPutResult` and `DataPutPublicResult` also carry `sha256`: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none on older daemons (`nil`).
+
 ### Chunks
 
 | Method | Description |
@@ -131,6 +133,8 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 | `client:file_get_public(address, dest_path)` | Download a public file by address |
 | `client:file_cost(path, is_public, payment_mode)` | Estimate upload cost — returns a table with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
 
+`FilePutResult` and `FilePutPublicResult` also carry `sha256`: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none on older daemons (`nil`).
+
 ### Manifests
 
 A manifest (ADR-0006) is one `.ant` file, or one `ant://manifest/` link, that describes a set of files: each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to the file) or a public file's DataMap address. The daemon builds and decodes manifests, so the format never has to be re-implemented here. The manifest methods need an antd with the manifest API (antd 0.16.0 or later).
@@ -143,11 +147,11 @@ A manifest (ADR-0006) is one `.ant` file, or one `ant://manifest/` link, that de
 | `client:decode_manifest(bytes, resolve)` | Decode `.ant` bytes — returns `{ source, name, torrent_info_hash_v1, torrent_info_hash_v2, entries }` |
 | `client:decode_manifest_link(link, resolve)` | Decode an `ant://` manifest link, a file link or a bare 64-hex address — same result. A file link or address reads as `source == "file_link"`: one public entry with no path |
 
-Each of `entries` passed to `build_manifest` is `{ path, size, data_map, address }`, with **exactly one** of `data_map` (hex, as the upload methods return it; embedded) or `address` (hex; public). An entry with both or neither is refused as `bad_request` (status 400) before anything is sent, with the daemon's own message, so a client-side refusal reads exactly like the daemon's (every bad entry listed, counted from 0). `path` (the relative path the entry extracts under) and `size` (the plaintext size to record, the creator's claim) are optional. `opts` is `nil` or `{ name, torrent_info_hashes, embed_roots }`: a suggested root directory name, BitTorrent info hashes of the same files (40 hex characters for v1, 64 for v2), and whether to embed roots. `embed_roots` defaults to `true` (when `nil`): the daemon resolves each shrunk DataMap and embeds its root when that is at most 64 KiB, so recipients skip that fetch. `false` embeds shrunk DataMaps exactly as given.
+Each of `entries` passed to `build_manifest` is `{ path, size, data_map, address, sha256 }`, with **exactly one** of `data_map` (hex, as the upload methods return it; embedded) or `address` (hex; public). An entry with both or neither is refused as `bad_request` (status 400) before anything is sent, with the daemon's own message, so a client-side refusal reads exactly like the daemon's (every bad entry listed, counted from 0). `path` (the relative path the entry extracts under) and `size` (the plaintext size to record, the creator's claim) are optional. `sha256` is optional too: the plaintext's SHA-256 (hex) to record, passed to the daemon exactly as given (the daemon validates it and answers a malformed one with `bad_request`); unset or `""` is left out of the request. Requires antd 0.17.0 or later. `opts` is `nil` or `{ name, torrent_info_hashes, embed_roots }`: a suggested root directory name, BitTorrent info hashes of the same files (40 hex characters for v1, 64 for v2), and whether to embed roots. `embed_roots` defaults to `true` (when `nil`): the daemon resolves each shrunk DataMap and embeds its root when that is at most 64 KiB, so recipients skip that fetch. `false` embeds shrunk DataMaps exactly as given.
 
-Every entry read back is `{ effective_name, path, size, kind, content_address, data_map, exact_size, error }`. `effective_name` is the path, or the content address when there is none. `kind` is `antd.ManifestEntryKind.EMBEDDED` (`"embedded"`) or `PUBLIC` (`"public"`). `content_address` is the file's public DataMap address, the same for private and public uploads of one file. `data_map` is the embedded DataMap in the hex form the download methods accept (decode only). `exact_size` comes from an embedded root DataMap, or from a decode with `resolve = true`, which fetches each entry's DataMap (not its content). Entries come in encoded order, sorted by effective name.
+Every entry read back is `{ effective_name, path, size, kind, content_address, data_map, exact_size, error, sha256 }`. `effective_name` is the path, or the content address when there is none. `kind` is `antd.ManifestEntryKind.EMBEDDED` (`"embedded"`) or `PUBLIC` (`"public"`). `content_address` is the file's public DataMap address, the same for private and public uploads of one file. `data_map` is the embedded DataMap in the hex form the download methods accept (decode only). `sha256` is the plaintext's SHA-256 (hex) the manifest records for the entry, `nil` when it has none (requires antd 0.17.0 or later). `exact_size` comes from an embedded root DataMap, or from a decode with `resolve = true`, which fetches each entry's DataMap (not its content). Entries come in encoded order, sorted by effective name.
 
-The `.ant` bytes are a plain Lua string on both sides; base64 is only the REST wire form. Sizes are Lua numbers, exact up to 2^53 (`antd.MAX_MANIFEST_SIZE`), far past any real file; a `size` outside 0..2^53 or not a whole number is refused before sending. **Anything unset reads as `nil`**: a size the manifest does not record is `nil`, never `0`, and `path`, `data_map`, `error`, `link`, `name` and the torrent info hashes are `nil` rather than `""`.
+The `.ant` bytes are a plain Lua string on both sides; base64 is only the REST wire form. Sizes are Lua numbers, exact up to 2^53 (`antd.MAX_MANIFEST_SIZE`), far past any real file; a `size` outside 0..2^53 or not a whole number is refused before sending. **Anything unset reads as `nil`**: a size the manifest does not record is `nil`, never `0`, and `path`, `data_map`, `error`, `sha256`, `link`, `name` and the torrent info hashes are `nil` rather than `""`.
 
 A bad entry or input from the daemon is a `bad_request` (HTTP 400) with the daemon's message, which names each invalid entry counting from 0 (`entries[0]: invalid path "../x": ...`); the SDK's own checks use the same type, status and wording. One entry's `resolve` failure is not a failed call: it comes back in that entry's `error`.
 
@@ -181,6 +185,8 @@ See [examples/09-manifests.lua](examples/09-manifests.lua) for the full round tr
 | `client:finalize_merkle_upload(upload_id, winner_pool_hash, store_data_map)` | Submit a merkle-batch upload after external payment |
 | `client:prepare_chunk_upload(data)` | Get payment intent for a single chunk |
 | `client:finalize_chunk_upload(upload_id, tx_hashes)` | Submit a prepared chunk after external payment; returns the chunk address |
+
+`FinalizeUploadResult` (wave and merkle finalize) also carries `sha256`: the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none on older daemons (`nil`).
 
 A finalize where some chunks stayed unstored after the daemon's retries returns a `partial_upload` error (HTTP 502, `code: "PARTIAL_UPLOAD"`) — see [Partial uploads](#partial-uploads) below. The full flow is documented in [docs/external-signer-flow.md](../docs/external-signer-flow.md).
 
@@ -346,6 +352,8 @@ busted spec/
 ```
 
 `spec/external_signer_util_spec.lua` runs real commands through `/bin/sh` (`printf`, `touch`, `sh`), so it needs a POSIX shell. It does not need `cast`.
+
+`spec/live_sha256_spec.lua` checks the `sha256` fields against a live antd 0.17.0 or later. It stays pending unless `ANTD_TEST_URL` and `ANTD_TEST_SHA_LINK` (an `ant://manifest/` link with entries `public.txt` and `private.txt`, each with a `sha256`, and `nohash.txt`, with none) are set; it also reads `ANTD_TEST_SHA_PUBLIC_ADDRESS`, `ANTD_TEST_SHA_PUBLIC_SHA256` and `ANTD_TEST_SHA_DATA_MAP_SHA256`. Its last case makes one paid public data upload and compares the result's `sha256` with one computed by `sha256sum` (POSIX shell needed).
 
 `spec/live_pointers_spec.lua` is a pointer round trip against a live daemon on a devnet. It stays pending unless `ANTD_TEST_URL` (the daemon's REST URL) and `ANTD_TEST_POINTER_OWNERS` (two comma-separated, never-written pointer addresses the daemon holds keys for) are set. The daemon's wallet pays for every write, and the run leaves the first pointer transferred and the second with a pending prepared write, so each pair works once:
 

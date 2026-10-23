@@ -3,6 +3,8 @@
 #include <optional>
 #include <string>
 
+#include "antd/models.hpp"
+
 namespace antd::detail {
 
 namespace v1 = antd::v1;
@@ -26,6 +28,7 @@ std::vector<ManifestEntryInfo> manifest_entries_from_pb(
         info.data_map = e.data_map();
         if (e.has_exact_size()) info.exact_size = e.exact_size();
         info.error = e.error();
+        info.sha256 = none_if_empty(e.sha256());
         out.push_back(std::move(info));
     }
     return out;
@@ -54,6 +57,7 @@ v1::BuildManifestRequest manifest_build_request(const std::vector<ManifestEntryI
         auto* in = req.add_entries();
         if (!e.path.empty()) in->set_path(e.path);
         if (e.size) in->set_size(*e.size);
+        if (e.sha256 && !e.sha256->empty()) in->set_sha256(*e.sha256);
         if (!e.data_map.empty()) {
             in->set_data_map(e.data_map);
         } else {

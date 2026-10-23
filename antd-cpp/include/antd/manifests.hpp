@@ -44,6 +44,11 @@ struct ManifestEntryInput {
     std::string data_map{};
     /// A public file's DataMap address (hex, 32 bytes).
     std::string address{};
+    /// The plaintext's SHA-256 to record (hex), as given: nothing is checked
+    /// here, the daemon validates it (400 on a malformed value). Unset or
+    /// empty: none is recorded, and the field is not sent. Requires antd
+    /// 0.17.0 or later.
+    std::optional<std::string> sha256{};
 };
 
 /// The optional parts of a build_manifest call. A default-constructed value
@@ -83,6 +88,9 @@ struct ManifestEntryInfo {
     /// Why a resolving decode failed for this entry. Empty when it didn't:
     /// one entry's failure is reported here, not as a failed call.
     std::string error;
+    /// The plaintext's SHA-256 (hex) the manifest records for the entry. Unset
+    /// when it records none, and on daemons before antd 0.17.0.
+    std::optional<std::string> sha256;
 };
 
 /// The result of build_manifest.
