@@ -13,7 +13,8 @@
 --
 -- Sizes are Lua numbers, exact up to 2^53, far past any real file. An unset
 -- size reads as nil, never 0. Optional strings (`path`, `data_map`, `error`,
--- `link`, `name` and the torrent info hashes) read as nil when unset too.
+-- `link`, `name`, `sha256` and the torrent info hashes) read as nil when
+-- unset too.
 --
 -- These methods are installed on antd.client's Client by `install`. Needs an
 -- antd with the manifest API (antd 0.16.0 or later).
@@ -101,6 +102,7 @@ local function parse_entries(raw)
                 data_map = opt_str(e, "data_map"),
                 exact_size = opt_size(e, "exact_size"),
                 error = opt_str(e, "error"),
+                sha256 = opt_str(e, "sha256"),
             }
         end
     end
@@ -183,6 +185,14 @@ local function encode_entry(e)
         -- -0 passes is_size; write it as 0, not "-0".
         local size = e.size == 0 and 0 or e.size
         fields[#fields + 1] = '"size":' .. string.format("%.0f", size)
+    end
+    -- sha256 is passed through as given (no hex or length check): the daemon
+    -- validates it. Unset or "" is left out of the request.
+    if is_set(e.sha256) then
+        if type(e.sha256) ~= "string" then
+            return nil, "sha256 must be a string"
+        end
+        fields[#fields + 1] = '"sha256":' .. cjson.encode(e.sha256)
     end
     local key, value = "data_map", e.data_map
     if has_addr then
@@ -276,11 +286,13 @@ local methods = {}
 -- such as "../x", bad hex) the same way.
 -- @param entries table list of ManifestEntryInput tables:
 --   { path = string|nil, size = number|nil, data_map = string|nil,
---     address = string|nil }. `path` is the relative path the entry
---   extracts under (nil: its content address). `size` is the plaintext size
+--     address = string|nil, sha256 = string|nil }. `path` is the relative
+--   path the entry extracts under (nil: its content address). `size` is the plaintext size
 --   to record as given, the creator's claim (nil: none recorded). `data_map`
 --   is a hex DataMap as the upload methods return it, embedded in the
---   manifest; `address` is a public file's DataMap address (hex).
+--   manifest; `address` is a public file's DataMap address (hex). `sha256`
+--   is the plaintext's SHA-256 (hex) to record as given, the creator's claim
+--   (nil: none; the daemon validates it; needs antd 0.17.0 or later).
 -- @param opts table|nil BuildManifestOptions: { name = string|nil,
 --   torrent_info_hashes = {hex,...}|nil, embed_roots = boolean|nil }.
 --   `name` is a suggested root directory name. `torrent_info_hashes` are
@@ -332,7 +344,7 @@ end
 -- @return table|nil DecodedManifest { source, name, torrent_info_hash_v1,
 --   torrent_info_hash_v2, entries }, error|nil. Each entry is a
 --   ManifestEntryInfo { effective_name, path, size, kind, content_address,
---   data_map, exact_size, error }.
+--   data_map, exact_size, error, sha256 }.
 function methods:decode_manifest(manifest, resolve)
     if type(manifest) ~= "string" or manifest == "" then
         return nil, daemon_bad_request(EMPTY_DECODE_INPUT)
