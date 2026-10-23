@@ -160,6 +160,12 @@ client = Antd::Client.new(base_url: "http://custom-host:9090", timeout: 30)
 | `file_get_public(address, dest_path)` | Download a public file by address |
 | `file_cost(path, is_public, payment_mode: :auto)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+**`sha256` on upload results.** `DataPutResult`, `DataPutPublicResult`,
+`FilePutResult`, `FilePutPublicResult` and `FinalizeUploadResult` (from
+`finalize_upload` and `finalize_merkle_upload`) have a `sha256` field: the
+plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none on older
+daemons (`nil`, over REST and gRPC alike).
+
 ### Pointers
 
 A pointer is a small, owner-signed, mutable reference. Its address is derived
@@ -360,6 +366,14 @@ only, in the hex form `data_get` and `file_get` take), `exact_size`, and
 `error`. With `resolve: true` the daemon fetches each DataMap (not the
 content) to fill in `exact_size`; an entry that fails gets an `error` instead
 of failing the call.
+
+An entry can record the file's plaintext SHA-256: give `sha256` (hex) on a
+`ManifestEntryInput` or Hash entry, and read it back as `sha256` on the
+`ManifestEntryInfo`, from both build and decode. Both require antd 0.17.0 or
+later. The SDK sends `sha256` only when it is set and non-empty, and passes it
+through unchecked: the daemon validates it (upper or lower case is accepted,
+lowercase comes back) and a bad one raises `BadRequestError`. An entry with no
+recorded hash reads `nil`.
 
 `manifest` is always raw bytes: the SDK base64-encodes it for REST and sends
 it as-is over gRPC. Sizes are `Integer`s, and anything a manifest leaves unset

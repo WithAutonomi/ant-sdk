@@ -125,7 +125,7 @@ class TestManifests < Minitest::Test
     [
       [{ address: ADDR, size: -1 }, "entries[0]: size must be a non-negative Integer or nil"],
       [{ address: ADDR, size: "10" }, "entries[0]: size must be a non-negative Integer or nil"],
-      [{ address: ADDR, sise: 10 }, "entries[0]: unknown field (expected path, size, data_map, address)"],
+      [{ address: ADDR, sise: 10 }, "entries[0]: unknown field (expected path, size, data_map, address, sha256)"],
       [ADDR, "entries[0]: must be a ManifestEntryInput or Hash"]
     ].each do |entry, expected|
       err = assert_raises(Antd::BadRequestError) { @client.build_manifest([entry]) }

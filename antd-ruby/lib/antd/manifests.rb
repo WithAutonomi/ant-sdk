@@ -41,8 +41,11 @@ module Antd
   # - +data_map+: a hex DataMap, as the upload methods return it. The entry
   #   embeds it.
   # - +address+: a public file's DataMap address (hex, 32 bytes).
-  ManifestEntryInput = Struct.new(:path, :size, :data_map, :address, keyword_init: true) do
-    def initialize(path: nil, size: nil, data_map: nil, address: nil)
+  # - +sha256+: the plaintext's SHA-256 to record, as hex, passed through
+  #   unchecked (the daemon validates it). nil or "": none is recorded.
+  #   Needs antd 0.17.0 or later.
+  ManifestEntryInput = Struct.new(:path, :size, :data_map, :address, :sha256, keyword_init: true) do
+    def initialize(path: nil, size: nil, data_map: nil, address: nil, sha256: nil)
       super
     end
   end
@@ -65,12 +68,15 @@ module Antd
   #   or after a resolving decode; nil when unknown.
   # - +error+: why a resolving decode failed for this entry, or nil. A
   #   failed entry does not fail the call.
+  # - +sha256+: the plaintext's SHA-256 (hex) the manifest records, or nil
+  #   (antd 0.17.0 or later).
   ManifestEntryInfo = Struct.new(
     :effective_name, :path, :size, :kind, :content_address, :data_map, :exact_size, :error,
+    :sha256,
     keyword_init: true
   ) do
     def initialize(effective_name: "", path: nil, size: nil, kind: "", content_address: "",
-                   data_map: nil, exact_size: nil, error: nil)
+                   data_map: nil, exact_size: nil, error: nil, sha256: nil)
       super
     end
   end
@@ -143,7 +149,7 @@ module Antd
       e
     rescue ArgumentError
       # A Hash with a key ManifestEntryInput does not have.
-      errors << "entries[#{i}]: unknown field (expected path, size, data_map, address)"
+      errors << "entries[#{i}]: unknown field (expected path, size, data_map, address, sha256)"
       nil
     end
     raise BadRequestError, Antd.manifest_entry_errors_message(errors) unless errors.empty?
@@ -198,6 +204,7 @@ module Antd
         else
           m[:data_map] = e.data_map
         end
+        m[:sha256] = e.sha256 unless e.sha256.nil? || e.sha256.empty?
         m
       end
       body = { entries: wire, embed_roots: embed_roots ? true : false }
@@ -282,7 +289,8 @@ module Antd
           content_address: e["content_address"] || "",
           data_map: manifest_string(e["data_map"]),
           exact_size: manifest_size(e["exact_size"]),
-          error: manifest_string(e["error"])
+          error: manifest_string(e["error"]),
+          sha256: manifest_string(e["sha256"])
         )
       end
     end

@@ -61,7 +61,8 @@ module Antd
       DataPutResult.new(
         data_map: j["data_map"] || "",
         chunks_stored: (j["chunks_stored"] || 0).to_i,
-        payment_mode_used: j["payment_mode_used"] || ""
+        payment_mode_used: j["payment_mode_used"] || "",
+        sha256: presence(j["sha256"])
       )
     end
 
@@ -120,7 +121,8 @@ module Antd
       DataPutPublicResult.new(
         address: j["address"] || "",
         chunks_stored: (j["chunks_stored"] || 0).to_i,
-        payment_mode_used: j["payment_mode_used"] || ""
+        payment_mode_used: j["payment_mode_used"] || "",
+        sha256: presence(j["sha256"])
       )
     end
 
@@ -248,7 +250,8 @@ module Antd
         storage_cost_atto: j["storage_cost_atto"] || "",
         gas_cost_wei: j["gas_cost_wei"] || "",
         chunks_stored: (j["chunks_stored"] || 0).to_i,
-        payment_mode_used: j["payment_mode_used"] || ""
+        payment_mode_used: j["payment_mode_used"] || "",
+        sha256: presence(j["sha256"])
       )
     end
 
@@ -273,7 +276,8 @@ module Antd
         storage_cost_atto: j["storage_cost_atto"] || "",
         gas_cost_wei: j["gas_cost_wei"] || "",
         chunks_stored: (j["chunks_stored"] || 0).to_i,
-        payment_mode_used: j["payment_mode_used"] || ""
+        payment_mode_used: j["payment_mode_used"] || "",
+        sha256: presence(j["sha256"])
       )
     end
 
@@ -671,7 +675,8 @@ module Antd
         address: j["address"] || "",
         chunks_stored: (j["chunks_stored"] || 0).to_i,
         data_map: j["data_map"] || "",
-        data_map_address: j["data_map_address"] || ""
+        data_map_address: j["data_map_address"] || "",
+        sha256: presence(j["sha256"])
       )
     end
 

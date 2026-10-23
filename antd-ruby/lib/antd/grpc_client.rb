@@ -79,7 +79,8 @@ module Antd
     def data_put(data, payment_mode: PaymentMode::AUTO)
       req = Antd::V1::PutDataRequest.new(data: data.b, payment_mode: payment_mode)
       resp = grpc_call { @data_stub.put(req) }
-      DataPutResult.new(data_map: resp.data_map, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used)
+      DataPutResult.new(data_map: resp.data_map, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used,
+                        sha256: presence(resp.sha256))
     end
 
     # Retrieve private data from a caller-held DataMap (hex).
@@ -98,7 +99,8 @@ module Antd
     def data_put_public(data, payment_mode: PaymentMode::AUTO)
       req = Antd::V1::PutPublicDataRequest.new(data: data.b, payment_mode: payment_mode)
       resp = grpc_call { @data_stub.put_public(req) }
-      DataPutPublicResult.new(address: resp.address, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used)
+      DataPutPublicResult.new(address: resp.address, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used,
+                              sha256: presence(resp.sha256))
     end
 
     # Retrieve public data by address.
@@ -229,7 +231,8 @@ module Antd
         storage_cost_atto: resp.storage_cost_atto,
         gas_cost_wei: resp.gas_cost_wei,
         chunks_stored: resp.chunks_stored,
-        payment_mode_used: resp.payment_mode_used
+        payment_mode_used: resp.payment_mode_used,
+        sha256: presence(resp.sha256)
       )
     end
 
@@ -255,7 +258,8 @@ module Antd
         storage_cost_atto: resp.storage_cost_atto,
         gas_cost_wei: resp.gas_cost_wei,
         chunks_stored: resp.chunks_stored,
-        payment_mode_used: resp.payment_mode_used
+        payment_mode_used: resp.payment_mode_used,
+        sha256: presence(resp.sha256)
       )
     end
 
@@ -411,7 +415,8 @@ module Antd
         address: resp.address,
         chunks_stored: resp.chunks_stored.to_i,
         data_map: resp.data_map,
-        data_map_address: resp.data_map_address
+        data_map_address: resp.data_map_address,
+        sha256: presence(resp.sha256)
       )
     end
 
@@ -443,7 +448,8 @@ module Antd
         address: resp.address,
         chunks_stored: resp.chunks_stored.to_i,
         data_map: resp.data_map,
-        data_map_address: resp.data_map_address
+        data_map_address: resp.data_map_address,
+        sha256: presence(resp.sha256)
       )
     end
 
