@@ -151,7 +151,13 @@ defmodule Antd.GrpcClient do
 
     case Antd.V1.DataService.Stub.put(channel, req) do
       {:ok, resp} ->
-        {:ok, %Antd.DataPutResult{data_map: resp.data_map, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used}}
+        {:ok,
+         %Antd.DataPutResult{
+           data_map: resp.data_map,
+           chunks_stored: resp.chunks_stored,
+           payment_mode_used: resp.payment_mode_used,
+           sha256: presence(resp.sha256)
+         }}
 
       {:error, rpc_error} ->
         {:error, translate_error(rpc_error)}
@@ -260,7 +266,13 @@ defmodule Antd.GrpcClient do
 
     case Antd.V1.DataService.Stub.put_public(channel, req) do
       {:ok, resp} ->
-        {:ok, %Antd.DataPutPublicResult{address: resp.address, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used}}
+        {:ok,
+         %Antd.DataPutPublicResult{
+           address: resp.address,
+           chunks_stored: resp.chunks_stored,
+           payment_mode_used: resp.payment_mode_used,
+           sha256: presence(resp.sha256)
+         }}
 
       {:error, rpc_error} ->
         {:error, translate_error(rpc_error)}
@@ -574,7 +586,8 @@ defmodule Antd.GrpcClient do
       storage_cost_atto: resp.storage_cost_atto,
       gas_cost_wei: resp.gas_cost_wei,
       chunks_stored: resp.chunks_stored,
-      payment_mode_used: resp.payment_mode_used
+      payment_mode_used: resp.payment_mode_used,
+      sha256: presence(resp.sha256)
     }
   end
 
@@ -584,7 +597,8 @@ defmodule Antd.GrpcClient do
       storage_cost_atto: resp.storage_cost_atto,
       gas_cost_wei: resp.gas_cost_wei,
       chunks_stored: resp.chunks_stored,
-      payment_mode_used: resp.payment_mode_used
+      payment_mode_used: resp.payment_mode_used,
+      sha256: presence(resp.sha256)
     }
   end
 
@@ -1242,9 +1256,15 @@ defmodule Antd.GrpcClient do
       data_map: resp.data_map,
       address: resp.address,
       data_map_address: resp.data_map_address,
-      chunks_stored: resp.chunks_stored
+      chunks_stored: resp.chunks_stored,
+      sha256: presence(resp.sha256)
     }
   end
+
+  # gRPC sends an unset string as "": the plaintext SHA-256 of an upload
+  # result reads as nil then (antd < 0.17.0).
+  defp presence(value) when is_binary(value) and value != "", do: value
+  defp presence(_), do: nil
 
   defp prepare_chunk_response_from_proto(resp) do
     if resp.already_stored do
