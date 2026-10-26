@@ -7,7 +7,7 @@
 #     again and the audit fails, which forces a re-review.
 #
 # Rust ignores here must agree with the cargo-audit ignores in
-# antd/, ffi/rust/ and ffi/node/ .cargo/audit.toml.
+# antd/, antd-rust/, ffi/rust/ and ffi/node/ .cargo/audit.toml.
 
 # --- zip 2.4.2 (transitive: ant-core -> zip) --------------------------------
 # All three affect only ZipArchive::extract() / ZipStreamReader::extract().
@@ -40,6 +40,25 @@ reason = "zip extract() permissions through symlinks; ant-core never calls extra
 id = "RUSTSEC-2026-0253"
 ignoreUntil = 2027-01-18
 reason = "lru 0.16 unsound pop(); fix needs lru 0.18 via an alloy-provider upgrade upstream. V2-1582."
+
+# --- crypto-bigint 0.5.5 (transitive: evmlib -> alloy -> alloy-signer -> k256 0.13) ---
+# Timing-variability advisory, fixed only in crypto-bigint >= 0.7.6 (no 0.5/0.6
+# backport). alloy up to 2.5.0 still requires k256/elliptic-curve ^0.13, so
+# nothing here can resolve to 0.7. Most of the named operations (UintRef,
+# BoxedMontyForm, division, Montgomery, zero counting) are absent from 0.5.5 or
+# unused by k256, and the subtraction leak came from a 0.7-era workaround, but
+# k256 signing does run U256 sbb/add_mod/sub_mod on secret scalars, so exposure
+# is reduced, not zero: it takes a local timing observer next to the wallet key
+# (antd AUTONOMI_WALLET_KEY, ffi private_key). antd-rust has it as a
+# dev-dependency only. Remove when alloy adopts k256/elliptic-curve 0.14 and
+# evmlib/ant-core are repinned. Upstream: alloy-rs/alloy#4445,
+# alloy-rs/core#1147. Matches the cargo-audit ignores in antd/, antd-rust/,
+# ffi/rust/, ffi/node/.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0387"
+ignoreUntil = 2026-12-14
+reason = "crypto-bigint 0.5.5 timing variability; fix only in 0.7.6+, blocked on alloy moving to k256 0.14 (alloy-rs/alloy#4445); reduced exposure, local timing observer only."
 
 # --- RustSec "unmaintained" notices -----------------------------------------
 # Informational, not vulnerabilities: cargo audit reports them as warnings and
