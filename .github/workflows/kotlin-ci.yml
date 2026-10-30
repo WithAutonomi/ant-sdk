@@ -1,0 +1,68 @@
+name: Kotlin CI
+
+# antd-kotlin had no CI before 2026-10-30: no workflow ran on a change to its
+# source, so a PR could merge with zero checks (#409 did). Builds and tests the
+# library (REST client against MockWebServer, gRPC client against in-process
+# servers, no daemon needed; the Live* tests skip without one) and builds the
+# examples. lib's copyProtos task compiles the daemon's protos from antd/proto,
+# so a daemon proto change must also build here.
+
+on:
+  push:
+    branches: [main]
+    # GitHub Actions only allows EITHER `paths` OR `paths-ignore`, so the
+    # "skip when only .md files changed" negation lives inside `paths`.
+    paths:
+      - "antd-kotlin/**"
+      - "antd/proto/**"
+      - ".github/workflows/kotlin-ci.yml"
+      - "!**/*.md"
+  pull_request:
+    paths:
+      - "antd-kotlin/**"
+      - "antd/proto/**"
+      - ".github/workflows/kotlin-ci.yml"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-antd-kotlin:
+    name: Build + test (antd-kotlin)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-kotlin
+    steps:
+      - uses: actions/checkout@v4
+
+      # The build executes gradle/wrapper/gradle-wrapper.jar; fail unless it is
+      # a genuine Gradle release.
+      - uses: gradle/actions/wrapper-validation@v4
+
+      # JDK 17 matches jvmToolchain(17) in lib/build.gradle.kts, so the JDK that
+      # runs Gradle is also the toolchain it compiles and tests with.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            antd-kotlin/**/*.gradle.kts
+            antd-kotlin/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Build + test (lib, examples)
+        run: ./gradlew build --no-daemon --console=plain
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: antd-kotlin-test-reports
+          path: antd-kotlin/**/build/reports/tests/
+          if-no-files-found: ignore

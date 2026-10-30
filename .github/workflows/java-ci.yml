@@ -1,0 +1,69 @@
+name: Java CI
+
+# antd-java had no CI before 2026-10-30: no workflow ran on a change to its
+# source. Builds and tests the library (REST client against MockWebServer,
+# gRPC client against in-process servers, no daemon needed; the Live* tests
+# skip without one), builds the examples, and builds the javadoc and sources
+# jars that maven-publish would ship, so a javadoc error fails the PR rather
+# than a release. The protos are compiled straight from antd/proto
+# (sourceSets.main.proto.srcDir), so a daemon proto change must also build here.
+
+on:
+  push:
+    branches: [main]
+    # GitHub Actions only allows EITHER `paths` OR `paths-ignore`, so the
+    # "skip when only .md files changed" negation lives inside `paths`.
+    paths:
+      - "antd-java/**"
+      - "antd/proto/**"
+      - ".github/workflows/java-ci.yml"
+      - "!**/*.md"
+  pull_request:
+    paths:
+      - "antd-java/**"
+      - "antd/proto/**"
+      - ".github/workflows/java-ci.yml"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-antd-java:
+    name: Build + test (antd-java)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-java
+    steps:
+      - uses: actions/checkout@v4
+
+      # The build executes gradle/wrapper/gradle-wrapper.jar; fail unless it is
+      # a genuine Gradle release.
+      - uses: gradle/actions/wrapper-validation@v4
+
+      # JDK 17 matches the java toolchain in build.gradle.kts, so the JDK that
+      # runs Gradle is also the toolchain it compiles and tests with.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            antd-java/**/*.gradle.kts
+            antd-java/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Build + test (lib, examples, javadoc + sources jars)
+        run: ./gradlew build --no-daemon --console=plain
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: antd-java-test-reports
+          path: antd-java/**/build/reports/tests/
+          if-no-files-found: ignore
