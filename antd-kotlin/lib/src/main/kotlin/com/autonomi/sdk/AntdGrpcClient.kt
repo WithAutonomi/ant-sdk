@@ -16,6 +16,7 @@ import io.grpc.StatusException
 import io.grpc.StatusRuntimeException
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
@@ -99,8 +100,8 @@ class AntdGrpcClient internal constructor(
      * escapes raw. The status's trailers go along, since the daemon puts
      * `x-antd-error-code` there for the errors that share a status code with
      * older ones. Anything that is not a gRPC status propagates untouched.
-     * [health] is the one exception: it never throws, and reads the raw
-     * status itself (see [daemonAnswered]).
+     * [health] is the one exception: it throws only to pass on the caller's
+     * cancellation, and reads the raw status itself (see [daemonAnswered]).
      */
     private inline fun <T> grpc(block: () -> T): T = try {
         block()
@@ -128,6 +129,9 @@ class AntdGrpcClient internal constructor(
         HealthStatus(daemonAnswered(ex.status), "unknown")
     } catch (ex: StatusRuntimeException) {
         HealthStatus(daemonAnswered(ex.status), "unknown")
+    } catch (ex: CancellationException) {
+        // The caller was cancelled, which says nothing about the daemon.
+        throw ex
     } catch (_: Exception) {
         HealthStatus(false, "unknown")
     }

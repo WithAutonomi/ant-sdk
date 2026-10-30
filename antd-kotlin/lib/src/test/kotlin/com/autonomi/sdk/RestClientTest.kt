@@ -1,6 +1,10 @@
 package com.autonomi.sdk
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -230,6 +234,37 @@ class RestClientTest {
         assertEquals("abcdef123456", status.buildCommit)
         assertEquals("0xtoken", status.paymentTokenAddress)
         assertEquals("0xvault", status.paymentVaultAddress)
+    }
+
+    @Test
+    fun `health reports down when the daemon is unreachable`() = runTest {
+        val gone = MockWebServer()
+        gone.start()
+        val url = gone.url("/").toString()
+        gone.shutdown()
+        val unreachable = AntdRestClient(baseUrl = url)
+        try {
+            val status = unreachable.health()
+            assertFalse(status.ok)
+            assertEquals("unknown", status.network)
+        } finally {
+            unreachable.close()
+        }
+    }
+
+    @Test
+    fun `health propagates coroutine cancellation`() {
+        // A cancelled caller must see health() cancel, not a "daemon down"
+        // answer. The coroutine cancels itself and runs on until health()
+        // reaches its first suspension point, which throws.
+        var outcome: Result<HealthStatus>? = null
+        runBlocking {
+            launch {
+                cancel()
+                outcome = runCatching { client.health() }
+            }
+        }
+        assertIs<CancellationException>(assertNotNull(outcome).exceptionOrNull())
     }
 
     @Test
