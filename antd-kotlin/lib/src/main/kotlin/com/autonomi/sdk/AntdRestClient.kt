@@ -1,5 +1,6 @@
 package com.autonomi.sdk
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
@@ -204,6 +205,9 @@ class AntdRestClient(
 
     override suspend fun health(): HealthStatus = try {
         getJson<HealthResponseDto>("/health").toHealthStatus()
+    } catch (ex: CancellationException) {
+        // The caller was cancelled, which says nothing about the daemon.
+        throw ex
     } catch (_: Exception) {
         HealthStatus(false, "unknown")
     }

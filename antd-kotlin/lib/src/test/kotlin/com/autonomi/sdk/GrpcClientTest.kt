@@ -21,10 +21,13 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
@@ -871,6 +874,26 @@ class GrpcClientTest {
         } finally {
             scheduler.shutdownNow()
         }
+    }
+
+    @Test
+    fun healthPropagatesCoroutineCancellation() {
+        // Cancelling the caller while the check is in flight must cancel
+        // health(), not return "daemon down": the daemon has not answered
+        // and the caller has stopped waiting.
+        healthService.hang = true
+        var outcome: Result<HealthStatus>? = null
+        runBlocking {
+            val job = launch(Dispatchers.IO) { outcome = runCatching { client.health() } }
+            assertTrue(
+                healthService.arrived.await(10, TimeUnit.SECONDS),
+                "the health check never reached the server",
+            )
+            job.cancel()
+            job.join()
+        }
+        assertIs<CancellationException>(assertNotNull(outcome).exceptionOrNull())
+        assertEquals(1, healthRequests.count.get())
     }
 
     @Test
