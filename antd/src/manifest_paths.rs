@@ -104,33 +104,46 @@ pub fn repair_paths(paths: &[Option<&str>]) -> Result<Vec<Option<String>>, Vec<(
             clashes.push(i);
         }
     }
-    // Where the search for a free number starts, per clashing path: past
-    // the last number given to that path, so N copies of one name cost N
-    // tries rather than N².
-    let mut next_number: HashMap<String, usize> = HashMap::new();
+    // Where the search for a free number resumes, per family of numbered
+    // names (see `family`): every number below it gives a name that is taken
+    // or a directory, and stays so, since `taken` only grows. So no number
+    // is tried twice in one family, and N clashing paths cost about N tries
+    // in all rather than N², even when distinct long names are cut down to
+    // the same numbered names.
+    let mut resume: HashMap<String, usize> = HashMap::new();
     for i in clashes {
         let Some(base) = &bases[i] else { continue };
         let room = base.file_room();
-        let start = next_number
-            .get(&fold(&base.path_with(&base.file)))
-            .copied()
-            .unwrap_or(2);
-        // Each number gives a different name, so after at most this many
-        // tries one is neither taken nor a directory.
-        let tries = taken.len() + dirs.len() + 1;
-        let free = (start..)
-            .take(tries)
-            .filter_map(|n| Some((n, fit_file(&base.file, &format!(" ({n})"), room)?)))
-            .map(|(n, file)| (n, base.path_with(&file)))
-            .find(|(_, path)| {
-                let key = fold(path);
-                !dirs.contains(&key) && taken.insert(key)
-            });
-        match free {
-            Some((n, path)) => {
-                next_number.insert(fold(&base.path_with(&base.file)), n + 1);
-                repaired[i] = Some(path);
+        // Each number gives a different name, so one at most this high is
+        // neither taken nor a directory.
+        let last = 2 + taken.len() + dirs.len();
+        let mut n = 2;
+        let mut free = None;
+        while free.is_none() && n <= last {
+            // The numbers from `n` up to here share a family.
+            let width_end = next_width(n);
+            let Some(family) = family(base, n, room) else {
+                break;
+            };
+            n = n.max(resume.get(&family).copied().unwrap_or(n));
+            while n < width_end && n <= last {
+                let path = fit_file(&base.file, &format!(" ({n})"), room)
+                    .map(|file| base.path_with(&file));
+                n += 1;
+                #[cfg(test)]
+                TRIES.with(|tries| tries.set(tries.get() + 1));
+                if let Some(path) = path {
+                    let key = fold(&path);
+                    if !dirs.contains(&key) && taken.insert(key) {
+                        free = Some(path);
+                        break;
+                    }
+                }
             }
+            resume.insert(family, n);
+        }
+        match free {
+            Some(path) => repaired[i] = Some(path),
             None => errors.push((i, "no free name is left for this path".to_string())),
         }
     }
@@ -199,6 +212,32 @@ fn fit_file(name: &str, suffix: &str, max: usize) -> Option<String> {
         }
         keep = keep.checked_sub(1)?;
     }
+}
+
+/// The key `base`'s numbered names share for every number as wide as `n`:
+/// the name with the number written as zeros. A suffix of one width cuts the
+/// stem to the same length, so those names differ only in the number, and so
+/// do the numbered names of distinct long paths whose cuts drop everything
+/// that told them apart. `fold` treats every digit alike, so names with the
+/// same key are taken or free together. `None` when nothing fits.
+fn family(base: &Base, n: usize, room: usize) -> Option<String> {
+    let zeros = "0".repeat(n.to_string().len());
+    fit_file(&base.file, &format!(" ({zeros})"), room).map(|file| fold(&base.path_with(&file)))
+}
+
+/// The smallest number with more digits than `n`.
+fn next_width(n: usize) -> usize {
+    let mut end = 10_usize;
+    while end <= n && end < usize::MAX {
+        end = end.saturating_mul(10);
+    }
+    end
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Numbered names tried on this thread, for the tests that bound the cost.
+    static TRIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// `a/b/c` → `a`, `a/b`, `a/b/c`. Nothing for the root.
@@ -398,14 +437,62 @@ mod tests {
         assert_eq!(out[49], "same (50).txt");
     }
 
+    /// Numbered names `repair` tries for `paths`.
+    fn tries_for(paths: &[&str]) -> usize {
+        TRIES.with(|tries| tries.set(0));
+        repair(paths);
+        TRIES.with(std::cell::Cell::get)
+    }
+
+    #[test]
+    fn distinct_long_names_cut_to_the_same_numbered_name_cost_linear_tries() {
+        // Hermes on #411: 2,000 distinct 255-byte names, each twice. Making
+        // room for " (n)" cuts off the hex digits that tell them apart, so
+        // every second copy competes for the same numbered names. A search
+        // resumed per unsuffixed name restarted at (2) for each of them:
+        // 2,001,000 tries.
+        let names: Vec<String> = (0..2_000)
+            .map(|i| format!("{}{i:04x}.txt", "x".repeat(247)))
+            .collect();
+        assert!(names.iter().all(|n| n.len() == MAX_PATH_COMPONENT_BYTES));
+        let paths: Vec<&str> = names.iter().chain(&names).map(String::as_str).collect();
+
+        let tries = tries_for(&paths);
+
+        assert!(tries <= 2 * paths.len(), "{tries} tries");
+        assert_eq!(repair(&paths)[..2_000], names[..]);
+    }
+
+    #[test]
+    fn names_alike_only_from_two_digit_numbers_share_those_too() {
+        // 26 names that differ only in byte 246 of their 251-byte stem, 20
+        // copies of each, interleaved. " (2)" to " (9)" keep 247 bytes of
+        // the stem, so each name has its own; from " (10)" on the cut keeps
+        // 246, and all 26 compete for the same names. A search resumed per
+        // name, or per name's first numbered name, rescans those each time.
+        let names: Vec<String> = ('a'..='z')
+            .map(|c| format!("{}{c}yyyy.txt", "x".repeat(246)))
+            .collect();
+        assert!(names.iter().all(|n| n.len() == MAX_PATH_COMPONENT_BYTES));
+        let paths: Vec<&str> = (0..20)
+            .flat_map(|_| names.iter().map(String::as_str))
+            .collect();
+
+        let tries = tries_for(&paths);
+
+        assert!(tries <= 2 * paths.len(), "{tries} tries");
+    }
+
     #[test]
     fn many_copies_of_one_name_cost_linear_time() {
         // Quadratic search would take minutes here; this runs in well under
         // a second.
         let paths = vec!["same.txt"; 20_000];
         let input: Vec<Option<&str>> = paths.iter().map(|p| Some(*p)).collect();
+        TRIES.with(|tries| tries.set(0));
         let out = repair_paths(&input).unwrap();
         assert_eq!(out[19_999].as_deref(), Some("same (20000).txt"));
+        assert!(TRIES.with(std::cell::Cell::get) <= 2 * input.len());
     }
 
     #[test]
