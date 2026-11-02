@@ -8,9 +8,10 @@
 //! touched only to resolve DataMaps: the embedding policy on build, and
 //! `resolve` on decode.
 
+use std::collections::HashMap;
 use std::future::Future;
 
-use ant_core::data::manifest::path::validate_path;
+use ant_core::data::manifest::path::{portable_component, validate_path};
 use ant_core::data::manifest::{
     embedded_len, parse_link, ContentRef, Link, Manifest, ManifestEntry, ManifestError,
     TorrentReference, ADDRESS_LEN, MANIFEST_LINK_RECOMMENDED_MAX_BYTES,
@@ -75,6 +76,11 @@ pub struct BuildInput {
     /// root and embed it when it is at most `MAX_EMBEDDED_ROOT_MAP_BYTES`
     /// as written. Fetches wrapper records.
     pub embed_roots: bool,
+    /// Repair the entry paths and the name to the portable path rules
+    /// instead of rejecting them (V2-1771; see [`crate::manifest_paths`]).
+    /// The entries must come from `parse_entries` with `repair_paths` set,
+    /// which leaves their paths unchecked.
+    pub repair_paths: bool,
 }
 
 /// What a manifest says about one entry, in canonical (encoded) order.
@@ -92,9 +98,15 @@ pub struct EntryInfo {
     /// The embedded DataMap, as embedded (root or shrunk). `None` for
     /// `Public` entries.
     pub data_map: Option<DataMap>,
+    /// Build with `repair_paths` only: the path as given, before repair.
+    pub original_path: Option<String>,
+    /// Build with `repair_paths` only: whether repair changed the path.
+    pub repaired: bool,
 }
 
 pub struct BuildOutput {
+    /// The manifest's name as written: repaired, with `repair_paths`.
+    pub name: Option<String>,
     /// The `.ant` bytes.
     pub bytes: Vec<u8>,
     /// The `ant://manifest/` link, present only when it fits the
@@ -239,8 +251,9 @@ pub fn parse_torrent_hashes(hashes: &[String]) -> Result<Option<TorrentReference
 
 /// Turn raw `(path, size, data_map hex, address hex)` entries into
 /// [`EntryInput`]s, checking each one's source and path. Every invalid
-/// entry is reported, not just the first.
-pub fn parse_entries<I>(entries: I) -> Result<Vec<EntryInput>, AntdError>
+/// entry is reported, not just the first. With `repair_paths`, paths are
+/// not checked here: [`build`] repairs them.
+pub fn parse_entries<I>(entries: I, repair_paths: bool) -> Result<Vec<EntryInput>, AntdError>
 where
     I: IntoIterator<Item = RawEntry>,
 {
@@ -270,8 +283,10 @@ where
             (None, None) => Err("needs a data_map or an address".to_string()),
         };
         let path_ok = match &path {
-            Some(p) => validate_path(p).map_err(|reason| format!("invalid path {p:?}: {reason}")),
-            None => Ok(()),
+            Some(p) if !repair_paths => {
+                validate_path(p).map_err(|reason| format!("invalid path {p:?}: {reason}"))
+            }
+            _ => Ok(()),
         };
         let sha256 = sha256
             .filter(|h| !h.is_empty())
@@ -323,9 +338,21 @@ pub async fn build<R: DataMapResolver>(
     let BuildInput {
         name,
         torrent,
-        entries,
+        mut entries,
         embed_roots,
+        repair_paths,
     } = input;
+
+    // Repair first: it is CPU only, and a path it can't repair fails the
+    // request before any DataMap is resolved over the network.
+    let (name, originals) = if repair_paths {
+        (
+            name.and_then(|n| portable_component(&n)),
+            Some(repair_entry_paths(&mut entries)?),
+        )
+    } else {
+        (name, None)
+    };
 
     let resolved: Vec<Result<ManifestEntry, AntdError>> =
         stream::iter(entries.into_iter().enumerate())
@@ -339,7 +366,40 @@ pub async fn build<R: DataMapResolver>(
         torrent,
         entries: resolved.into_iter().collect::<Result<Vec<_>, _>>()?,
     };
-    finish_build(manifest)
+    let mut out = finish_build(manifest)?;
+    if let Some(originals) = originals {
+        for info in &mut out.entries {
+            let Some(path) = &info.path else { continue };
+            if let Some(original) = originals.get(path) {
+                info.repaired = original != path;
+                info.original_path = Some(original.clone());
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Repair every entry path in place (see [`crate::manifest_paths`]), and
+/// return each repaired path's original. Repaired paths are distinct, so
+/// they key the map.
+fn repair_entry_paths(entries: &mut [EntryInput]) -> Result<HashMap<String, String>, AntdError> {
+    let given: Vec<Option<String>> = entries.iter_mut().map(|e| e.path.take()).collect();
+    let paths: Vec<Option<&str>> = given.iter().map(Option::as_deref).collect();
+    let repaired = crate::manifest_paths::repair_paths(&paths).map_err(|errors| {
+        let errors: Vec<String> = errors
+            .into_iter()
+            .map(|(i, reason)| format!("entries[{i}]: cannot repair path: {reason}"))
+            .collect();
+        AntdError::BadRequest(entry_errors_message(&errors))
+    })?;
+    let mut originals = HashMap::new();
+    for ((entry, given), repaired) in entries.iter_mut().zip(given).zip(repaired) {
+        if let (Some(given), Some(repaired)) = (given, repaired) {
+            originals.insert(repaired.clone(), given);
+            entry.path = Some(repaired);
+        }
+    }
+    Ok(originals)
 }
 
 /// One build entry as it will be written. `size` is recorded exactly as
@@ -412,6 +472,7 @@ fn finish_build(mut manifest: Manifest) -> Result<BuildOutput, AntdError> {
         .map(|entry| entry_info(entry, false))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(BuildOutput {
+        name: manifest.name,
         bytes,
         link,
         entries,
@@ -533,6 +594,8 @@ fn entry_info(entry: ManifestEntry, keep_data_map: bool) -> Result<EntryInfo, An
         content_address,
         known_size,
         data_map,
+        original_path: None,
+        repaired: false,
     })
 }
 
@@ -635,6 +698,7 @@ mod tests {
             torrent: None,
             entries,
             embed_roots: true,
+            repair_paths: false,
         }
     }
 
@@ -813,16 +877,19 @@ mod tests {
     fn parse_entries_reports_every_invalid_entry() {
         let good = hex::encode([7u8; ADDRESS_LEN]);
         let good = Some(good.as_str());
-        let err = parse_entries(vec![
-            raw(Some("ok.txt"), None, None, good),
-            raw(Some("../escape"), None, None, good),
-            raw(None, None, None, None),
-            raw(None, None, Some("zz"), None),
-            raw(None, None, Some("00"), good),
-            raw(None, None, None, Some("abcd")),
-            raw(Some("short-hash"), Some("abcd"), None, good),
-            raw(Some("bad-hash"), Some("zz"), None, good),
-        ])
+        let err = parse_entries(
+            vec![
+                raw(Some("ok.txt"), None, None, good),
+                raw(Some("../escape"), None, None, good),
+                raw(None, None, None, None),
+                raw(None, None, Some("zz"), None),
+                raw(None, None, Some("00"), good),
+                raw(None, None, None, Some("abcd")),
+                raw(Some("short-hash"), Some("abcd"), None, good),
+                raw(Some("bad-hash"), Some("zz"), None, good),
+            ],
+            false,
+        )
         .err()
         .expect("invalid");
         let AntdError::BadRequest(msg) = err else {
@@ -838,8 +905,8 @@ mod tests {
     #[test]
     fn parse_entries_treats_empty_strings_as_absent() {
         let addr = hex::encode([3u8; ADDRESS_LEN]);
-        let parsed =
-            parse_entries(vec![raw(Some(""), Some(""), Some(""), Some(&addr))]).expect("valid");
+        let parsed = parse_entries(vec![raw(Some(""), Some(""), Some(""), Some(&addr))], false)
+            .expect("valid");
         assert!(parsed[0].path.is_none());
         assert!(parsed[0].sha256.is_none());
         assert!(matches!(parsed[0].source, EntrySource::Address(a) if a == [3; ADDRESS_LEN]));
@@ -1050,5 +1117,171 @@ mod tests {
                 .expect("must reject");
             assert!(matches!(err, AntdError::BadRequest(_)), "{link}: {err}");
         }
+    }
+
+    /// Build public entries at `paths`, all pointing at `address`, with
+    /// `repair_paths` set.
+    async fn build_repairing(
+        net: &FakeNetwork,
+        paths: &[&str],
+        address: &str,
+    ) -> Result<BuildOutput, AntdError> {
+        let entries = parse_entries(
+            paths
+                .iter()
+                .map(|p| raw(Some(*p), None, None, Some(address)))
+                .collect::<Vec<_>>(),
+            true,
+        )?;
+        build(
+            net,
+            BuildInput {
+                name: None,
+                torrent: None,
+                entries,
+                embed_roots: true,
+                repair_paths: true,
+            },
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn repair_paths_builds_from_any_names_and_reports_the_originals() {
+        let mut net = FakeNetwork::default();
+        let dm = data_map_hex(&upload(&mut net, 1024, 7)).expect("hex");
+        let (a, b, c) = (
+            "11".repeat(ADDRESS_LEN),
+            "22".repeat(ADDRESS_LEN),
+            "33".repeat(ADDRESS_LEN),
+        );
+        let entries = || {
+            vec![
+                raw(Some("Q3: plan?.pdf"), None, None, Some(a.as_str())),
+                raw(Some("report.pdf"), None, None, Some(b.as_str())),
+                raw(Some("Report.pdf"), None, None, Some(c.as_str())),
+                raw(Some("CON.txt"), None, Some(dm.as_str()), None),
+            ]
+        };
+
+        // Without the flag the same names are refused, as before.
+        let err = parse_entries(entries(), false)
+            .err()
+            .expect("invalid paths");
+        assert!(matches!(err, AntdError::BadRequest(_)), "{err}");
+
+        let out = build(
+            &net,
+            BuildInput {
+                name: Some("Album: 2026?".into()),
+                torrent: None,
+                entries: parse_entries(entries(), true).expect("any path, for repair"),
+                embed_roots: true,
+                repair_paths: true,
+            },
+        )
+        .await
+        .expect("builds");
+
+        assert_eq!(out.name.as_deref(), Some("Album_ 2026_"));
+        let reported: HashMap<String, (String, bool)> = out
+            .entries
+            .iter()
+            .map(|e| {
+                (
+                    e.original_path.clone().expect("original reported"),
+                    (e.path.clone().expect("path"), e.repaired),
+                )
+            })
+            .collect();
+        let expect = |path: &str, repaired| (path.to_string(), repaired);
+        assert_eq!(reported["Q3: plan?.pdf"], expect("Q3_ plan_.pdf", true));
+        assert_eq!(reported["report.pdf"], expect("report.pdf", false));
+        assert_eq!(reported["Report.pdf"], expect("Report (2).pdf", true));
+        assert_eq!(reported["CON.txt"], expect("_CON.txt", true));
+
+        // The bytes are an ordinary manifest: ant-core decodes it, with the
+        // repaired paths and name.
+        let decoded = Manifest::decode(&out.bytes).expect("decodes");
+        assert_eq!(decoded.name.as_deref(), Some("Album_ 2026_"));
+        let mut paths: Vec<String> = decoded
+            .entries
+            .iter()
+            .map(|e| e.path.clone().expect("path"))
+            .collect();
+        paths.sort();
+        assert_eq!(
+            paths,
+            ["Q3_ plan_.pdf", "Report (2).pdf", "_CON.txt", "report.pdf"]
+        );
+    }
+
+    #[tokio::test]
+    async fn repair_paths_is_deterministic() {
+        let net = FakeNetwork::default();
+        let addr = "44".repeat(ADDRESS_LEN);
+        let paths = ["b/C.txt", "B/c.txt", "a:x", "CON", "con.txt", "b"];
+        let first = build_repairing(&net, &paths, &addr).await.expect("builds");
+        let second = build_repairing(&net, &paths, &addr).await.expect("builds");
+        assert_eq!(first.bytes, second.bytes);
+    }
+
+    #[tokio::test]
+    async fn repair_paths_names_an_entry_it_cannot_repair() {
+        let net = FakeNetwork::default();
+        let addr = "55".repeat(ADDRESS_LEN);
+        // Directories alone over the 1,024-byte path limit.
+        let deep = format!("{}/x.txt", vec!["d".repeat(250); 5].join("/"));
+        let err = build_repairing(&net, &["ok.txt", deep.as_str()], &addr)
+            .await
+            .err()
+            .expect("unrepairable");
+        let AntdError::BadRequest(msg) = err else {
+            panic!("expected BadRequest, got {err}");
+        };
+        assert!(
+            msg.contains("entries[1]") && msg.contains("cannot repair path"),
+            "{msg}"
+        );
+        assert!(!msg.contains("entries[0]"), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn without_repair_paths_nothing_is_reported_as_repaired() {
+        let net = FakeNetwork::default();
+        let out = build(
+            &net,
+            build_input(vec![EntryInput {
+                path: Some("a.txt".into()),
+                size: None,
+                sha256: None,
+                source: EntrySource::Address([6; ADDRESS_LEN]),
+            }]),
+        )
+        .await
+        .expect("builds");
+        assert_eq!(out.name.as_deref(), Some("album"));
+        assert!(out
+            .entries
+            .iter()
+            .all(|e| e.original_path.is_none() && !e.repaired));
+    }
+
+    #[tokio::test]
+    async fn one_file_may_appear_under_two_paths() {
+        // A service exporting folders (a file kept in two collections) lists
+        // the same content twice; only the paths must differ.
+        let net = FakeNetwork::default();
+        let addr = "66".repeat(ADDRESS_LEN);
+        let out = build_repairing(&net, &["a/x.txt", "b/x.txt", "A/X.txt"], &addr)
+            .await
+            .expect("the same file at several paths is allowed");
+        let mut paths: Vec<_> = out
+            .entries
+            .iter()
+            .map(|e| e.path.clone().expect("path"))
+            .collect();
+        paths.sort();
+        assert_eq!(paths, ["A/X (2).txt", "a/x.txt", "b/x.txt"]);
     }
 }

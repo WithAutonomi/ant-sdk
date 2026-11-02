@@ -146,11 +146,55 @@ func TestBuildManifestDefaultsEmbedRoots(t *testing.T) {
 		if _, ok := body["name"]; ok {
 			t.Fatalf("empty name must be omitted: %+v", body)
 		}
+		if _, ok := body["repair_paths"]; ok {
+			t.Fatalf("repair_paths must be omitted unless asked for: %+v", body)
+		}
 		_, _ = io.WriteString(w, `{"manifest": "", "entries": []}`)
 	}))
 	defer srv.Close()
 	if _, err := NewClient(srv.URL).BuildManifest(context.Background(), []ManifestEntryInput{{Address: "11"}}, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBuildManifestRepairPaths(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["repair_paths"] != true {
+			t.Fatalf("repair_paths should be sent: %+v", body)
+		}
+		_, _ = io.WriteString(w, `{
+			"name": "Album_ 2026_",
+			"manifest": "wUFOVAE=",
+			"entries": [
+				{"effective_name": "Q3_ plan_.pdf", "path": "Q3_ plan_.pdf", "kind": "public",
+				 "content_address": "11", "original_path": "Q3: plan?.pdf", "repaired": true},
+				{"effective_name": "report.pdf", "path": "report.pdf", "kind": "public",
+				 "content_address": "22", "original_path": "report.pdf"}
+			]
+		}`)
+	}))
+	defer srv.Close()
+
+	res, err := NewClient(srv.URL).BuildManifest(context.Background(), []ManifestEntryInput{
+		{Path: "Q3: plan?.pdf", Address: "11"},
+		{Path: "report.pdf", Address: "22"},
+	}, &BuildManifestOptions{Name: "Album: 2026?", RepairPaths: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Name != "Album_ 2026_" {
+		t.Fatalf("unexpected name: %q", res.Name)
+	}
+	fixed, kept := res.Entries[0], res.Entries[1]
+	if fixed.Path != "Q3_ plan_.pdf" || fixed.OriginalPath != "Q3: plan?.pdf" || !fixed.Repaired {
+		t.Fatalf("unexpected repaired entry: %+v", fixed)
+	}
+	if kept.OriginalPath != "report.pdf" || kept.Repaired {
+		t.Fatalf("unexpected unchanged entry: %+v", kept)
 	}
 }
 
@@ -319,6 +363,23 @@ func (m *mockManifestService) Build(_ context.Context, req *pb.BuildManifestRequ
 	if req.GetName() == "big" {
 		return &pb.BuildManifestResponse{Manifest: make([]byte, bigManifestSize)}, nil
 	}
+	if req.GetName() == "Album: 2026?" {
+		if req.RepairPaths == nil || !req.GetRepairPaths() {
+			return nil, errors.New("repair_paths not sent")
+		}
+		name, original, path := "Album_ 2026_", req.GetEntries()[0].GetPath(), "Q3_ plan_.pdf"
+		return &pb.BuildManifestResponse{
+			Name:     &name,
+			Manifest: manifestHeader,
+			Entries: []*pb.ManifestEntryInfo{{
+				EffectiveName: path, Path: &path, Kind: "public", ContentAddress: "11",
+				OriginalPath: &original, Repaired: true,
+			}},
+		}, nil
+	}
+	if req.RepairPaths != nil {
+		return nil, errors.New("repair_paths must be unset unless asked for")
+	}
 	if req.GetName() != "album" || req.EmbedRoots == nil || !req.GetEmbedRoots() || len(req.GetEntries()) != 2 {
 		return nil, errors.New("unexpected request")
 	}
@@ -380,6 +441,23 @@ func TestGrpcBuildManifest(t *testing.T) {
 	}
 	if *res.Entries[0].Size != 10 || res.Entries[0].Path != "a.txt" || res.Entries[1].Size != nil {
 		t.Fatalf("unexpected entries: %+v", res.Entries)
+	}
+}
+
+func TestGrpcBuildManifestRepairPaths(t *testing.T) {
+	c := startMockServer(t)
+	res, err := c.BuildManifest(context.Background(), []ManifestEntryInput{
+		{Path: "Q3: plan?.pdf", Address: "11"},
+	}, &BuildManifestOptions{Name: "Album: 2026?", RepairPaths: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Name != "Album_ 2026_" || len(res.Entries) != 1 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	e := res.Entries[0]
+	if e.Path != "Q3_ plan_.pdf" || e.OriginalPath != "Q3: plan?.pdf" || !e.Repaired {
+		t.Fatalf("unexpected entry: %+v", e)
 	}
 }
 

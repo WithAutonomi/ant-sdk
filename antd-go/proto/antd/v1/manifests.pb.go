@@ -146,8 +146,17 @@ type BuildManifestRequest struct {
 	TorrentInfoHashes []string `protobuf:"bytes,2,rep,name=torrent_info_hashes,json=torrentInfoHashes,proto3" json:"torrent_info_hashes,omitempty"`
 	// Resolve shrunk DataMaps and embed the root when it is at most 64 KiB as
 	// written (ADR-0006's policy); fetches wrapper records. Unset: true.
-	EmbedRoots    *bool                 `protobuf:"varint,3,opt,name=embed_roots,json=embedRoots,proto3,oneof" json:"embed_roots,omitempty"`
-	Entries       []*ManifestEntryInput `protobuf:"bytes,4,rep,name=entries,proto3" json:"entries,omitempty"`
+	EmbedRoots *bool                 `protobuf:"varint,3,opt,name=embed_roots,json=embedRoots,proto3,oneof" json:"embed_roots,omitempty"`
+	Entries    []*ManifestEntryInput `protobuf:"bytes,4,rep,name=entries,proto3" json:"entries,omitempty"`
+	// Repair entry paths and `name` to the portable path rules instead of
+	// rejecting them (V2-1771). Forbidden characters become `_`, trailing
+	// spaces and dots are dropped, reserved device names gain a `_` prefix,
+	// long names are shortened keeping their extension, and a name that
+	// collides with another (as a case-insensitive filesystem sees them) gets
+	// ` (2)`, ` (3)` and so on before its extension. Each entry then reports
+	// `original_path` and `repaired`. Unset: false, and an invalid path is
+	// rejected.
+	RepairPaths   *bool `protobuf:"varint,5,opt,name=repair_paths,json=repairPaths,proto3,oneof" json:"repair_paths,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -210,6 +219,13 @@ func (x *BuildManifestRequest) GetEntries() []*ManifestEntryInput {
 	return nil
 }
 
+func (x *BuildManifestRequest) GetRepairPaths() bool {
+	if x != nil && x.RepairPaths != nil {
+		return *x.RepairPaths
+	}
+	return false
+}
+
 // What a manifest says about one entry.
 type ManifestEntryInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -232,7 +248,12 @@ type ManifestEntryInfo struct {
 	Error string `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
 	// The SHA-256 recorded in the manifest, hex: the creator's claim. Empty
 	// when there is none.
-	Sha256        string `protobuf:"bytes,9,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	Sha256 string `protobuf:"bytes,9,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// Build with `repair_paths` only: the path as given, before repair. Unset
+	// otherwise, and for an entry with no path.
+	OriginalPath *string `protobuf:"bytes,10,opt,name=original_path,json=originalPath,proto3,oneof" json:"original_path,omitempty"`
+	// Build with `repair_paths` only: whether repair changed the path.
+	Repaired      bool `protobuf:"varint,11,opt,name=repaired,proto3" json:"repaired,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -330,6 +351,20 @@ func (x *ManifestEntryInfo) GetSha256() string {
 	return ""
 }
 
+func (x *ManifestEntryInfo) GetOriginalPath() string {
+	if x != nil && x.OriginalPath != nil {
+		return *x.OriginalPath
+	}
+	return ""
+}
+
+func (x *ManifestEntryInfo) GetRepaired() bool {
+	if x != nil {
+		return x.Repaired
+	}
+	return false
+}
+
 type BuildManifestResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The `.ant` bytes.
@@ -338,7 +373,9 @@ type BuildManifestResponse struct {
 	// bytes. Empty otherwise.
 	Link string `protobuf:"bytes,2,opt,name=link,proto3" json:"link,omitempty"`
 	// In encoded order (sorted by effective name).
-	Entries       []*ManifestEntryInfo `protobuf:"bytes,3,rep,name=entries,proto3" json:"entries,omitempty"`
+	Entries []*ManifestEntryInfo `protobuf:"bytes,3,rep,name=entries,proto3" json:"entries,omitempty"`
+	// The manifest's name as written: repaired, with `repair_paths`.
+	Name          *string `protobuf:"bytes,4,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -392,6 +429,13 @@ func (x *BuildManifestResponse) GetEntries() []*ManifestEntryInfo {
 		return x.Entries
 	}
 	return nil
+}
+
+func (x *BuildManifestResponse) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
 }
 
 type DecodeManifestRequest struct {
@@ -583,15 +627,17 @@ const file_antd_v1_manifests_proto_rawDesc = "" +
 	"\x06sourceB\a\n" +
 	"\x05_pathB\a\n" +
 	"\x05_sizeB\t\n" +
-	"\a_sha256\"\xd5\x01\n" +
+	"\a_sha256\"\x8e\x02\n" +
 	"\x14BuildManifestRequest\x12\x17\n" +
 	"\x04name\x18\x01 \x01(\tH\x00R\x04name\x88\x01\x01\x12.\n" +
 	"\x13torrent_info_hashes\x18\x02 \x03(\tR\x11torrentInfoHashes\x12$\n" +
 	"\vembed_roots\x18\x03 \x01(\bH\x01R\n" +
 	"embedRoots\x88\x01\x01\x125\n" +
-	"\aentries\x18\x04 \x03(\v2\x1b.antd.v1.ManifestEntryInputR\aentriesB\a\n" +
+	"\aentries\x18\x04 \x03(\v2\x1b.antd.v1.ManifestEntryInputR\aentries\x12&\n" +
+	"\frepair_paths\x18\x05 \x01(\bH\x02R\vrepairPaths\x88\x01\x01B\a\n" +
 	"\x05_nameB\x0e\n" +
-	"\f_embed_roots\"\xb7\x02\n" +
+	"\f_embed_rootsB\x0f\n" +
+	"\r_repair_paths\"\x8f\x03\n" +
 	"\x11ManifestEntryInfo\x12%\n" +
 	"\x0eeffective_name\x18\x01 \x01(\tR\reffectiveName\x12\x17\n" +
 	"\x04path\x18\x02 \x01(\tH\x00R\x04path\x88\x01\x01\x12\x17\n" +
@@ -602,14 +648,20 @@ const file_antd_v1_manifests_proto_rawDesc = "" +
 	"\n" +
 	"exact_size\x18\a \x01(\x04H\x02R\texactSize\x88\x01\x01\x12\x14\n" +
 	"\x05error\x18\b \x01(\tR\x05error\x12\x16\n" +
-	"\x06sha256\x18\t \x01(\tR\x06sha256B\a\n" +
+	"\x06sha256\x18\t \x01(\tR\x06sha256\x12(\n" +
+	"\roriginal_path\x18\n" +
+	" \x01(\tH\x03R\foriginalPath\x88\x01\x01\x12\x1a\n" +
+	"\brepaired\x18\v \x01(\bR\brepairedB\a\n" +
 	"\x05_pathB\a\n" +
 	"\x05_sizeB\r\n" +
-	"\v_exact_size\"}\n" +
+	"\v_exact_sizeB\x10\n" +
+	"\x0e_original_path\"\x9f\x01\n" +
 	"\x15BuildManifestResponse\x12\x1a\n" +
 	"\bmanifest\x18\x01 \x01(\fR\bmanifest\x12\x12\n" +
 	"\x04link\x18\x02 \x01(\tR\x04link\x124\n" +
-	"\aentries\x18\x03 \x03(\v2\x1a.antd.v1.ManifestEntryInfoR\aentries\"n\n" +
+	"\aentries\x18\x03 \x03(\v2\x1a.antd.v1.ManifestEntryInfoR\aentries\x12\x17\n" +
+	"\x04name\x18\x04 \x01(\tH\x00R\x04name\x88\x01\x01B\a\n" +
+	"\x05_name\"n\n" +
 	"\x15DecodeManifestRequest\x12\x1c\n" +
 	"\bmanifest\x18\x01 \x01(\fH\x00R\bmanifest\x12\x14\n" +
 	"\x04link\x18\x02 \x01(\tH\x00R\x04link\x12\x18\n" +
@@ -673,6 +725,7 @@ func file_antd_v1_manifests_proto_init() {
 	}
 	file_antd_v1_manifests_proto_msgTypes[1].OneofWrappers = []any{}
 	file_antd_v1_manifests_proto_msgTypes[2].OneofWrappers = []any{}
+	file_antd_v1_manifests_proto_msgTypes[3].OneofWrappers = []any{}
 	file_antd_v1_manifests_proto_msgTypes[4].OneofWrappers = []any{
 		(*DecodeManifestRequest_Manifest)(nil),
 		(*DecodeManifestRequest_Link)(nil),

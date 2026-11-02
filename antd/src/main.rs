@@ -21,6 +21,7 @@ mod datamap;
 mod error;
 mod evm_defaults;
 mod grpc;
+mod manifest_paths;
 mod manifests;
 mod peers;
 mod pointer_keys;

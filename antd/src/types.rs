@@ -863,6 +863,10 @@ pub struct ManifestBuildRequest {
     /// as written (ADR-0006's policy). Fetches wrapper records. Default true.
     #[serde(default = "default_true")]
     pub embed_roots: bool,
+    /// Repair entry paths and `name` to the portable path rules instead of
+    /// rejecting them (V2-1771). Default false.
+    #[serde(default)]
+    pub repair_paths: bool,
     pub entries: Vec<ManifestBuildEntry>,
 }
 
@@ -885,6 +889,9 @@ pub struct ManifestBuildEntry {
 
 #[derive(Serialize)]
 pub struct ManifestBuildResponse {
+    /// The manifest's name as written: repaired, with `repair_paths`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// The `.ant` bytes, base64.
     pub manifest: String,
     /// The `ant://manifest/` link, only when it fits the recommended 1,500
@@ -952,6 +959,12 @@ pub struct ManifestEntryInfo {
     /// Why `resolve` failed for this entry.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Build with `repair_paths` only: the path as given, before repair.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_path: Option<String>,
+    /// Build with `repair_paths` only: true when repair changed the path.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub repaired: bool,
 }
 
 // ── Tests ──

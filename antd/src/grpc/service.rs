@@ -1624,6 +1624,8 @@ fn to_pb_manifest_entry(
             .unwrap_or_default(),
         exact_size: exact_size.or(info.known_size),
         error: error.unwrap_or_default(),
+        original_path: info.original_path,
+        repaired: info.repaired,
     })
 }
 
@@ -1638,20 +1640,23 @@ impl pb::manifest_service_server::ManifestService for ManifestServiceImpl {
 
         let req = request.into_inner();
         let torrent = crate::manifests::parse_torrent_hashes(&req.torrent_info_hashes)?;
-        let entries = crate::manifests::parse_entries(req.entries.into_iter().map(|e| {
-            let (data_map, address) = match e.source {
-                Some(Source::DataMap(d)) => (Some(d), None),
-                Some(Source::Address(a)) => (None, Some(a)),
-                None => (None, None),
-            };
-            crate::manifests::RawEntry {
-                path: e.path,
-                size: e.size,
-                sha256: e.sha256,
-                data_map,
-                address,
-            }
-        }))?;
+        let entries = crate::manifests::parse_entries(
+            req.entries.into_iter().map(|e| {
+                let (data_map, address) = match e.source {
+                    Some(Source::DataMap(d)) => (Some(d), None),
+                    Some(Source::Address(a)) => (None, Some(a)),
+                    None => (None, None),
+                };
+                crate::manifests::RawEntry {
+                    path: e.path,
+                    size: e.size,
+                    sha256: e.sha256,
+                    data_map,
+                    address,
+                }
+            }),
+            req.repair_paths.unwrap_or(false),
+        )?;
         let out = crate::manifests::build(
             &*self.state.client,
             crate::manifests::BuildInput {
@@ -1659,10 +1664,12 @@ impl pb::manifest_service_server::ManifestService for ManifestServiceImpl {
                 torrent,
                 entries,
                 embed_roots: req.embed_roots.unwrap_or(true),
+                repair_paths: req.repair_paths.unwrap_or(false),
             },
         )
         .await?;
         Ok(Response::new(pb::BuildManifestResponse {
+            name: out.name,
             manifest: out.bytes,
             link: out.link.unwrap_or_default(),
             entries: out
