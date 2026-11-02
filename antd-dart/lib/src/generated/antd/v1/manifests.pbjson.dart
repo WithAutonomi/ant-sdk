@@ -47,10 +47,12 @@ const BuildManifestRequest$json = {
     {'1': 'torrent_info_hashes', '3': 2, '4': 3, '5': 9, '10': 'torrentInfoHashes'},
     {'1': 'embed_roots', '3': 3, '4': 1, '5': 8, '9': 1, '10': 'embedRoots', '17': true},
     {'1': 'entries', '3': 4, '4': 3, '5': 11, '6': '.antd.v1.ManifestEntryInput', '10': 'entries'},
+    {'1': 'repair_paths', '3': 5, '4': 1, '5': 8, '9': 2, '10': 'repairPaths', '17': true},
   ],
   '8': [
     {'1': '_name'},
     {'1': '_embed_roots'},
+    {'1': '_repair_paths'},
   ],
 };
 
@@ -59,7 +61,8 @@ final $typed_data.Uint8List buildManifestRequestDescriptor = $convert.base64Deco
     'ChRCdWlsZE1hbmlmZXN0UmVxdWVzdBIXCgRuYW1lGAEgASgJSABSBG5hbWWIAQESLgoTdG9ycm'
     'VudF9pbmZvX2hhc2hlcxgCIAMoCVIRdG9ycmVudEluZm9IYXNoZXMSJAoLZW1iZWRfcm9vdHMY'
     'AyABKAhIAVIKZW1iZWRSb290c4gBARI1CgdlbnRyaWVzGAQgAygLMhsuYW50ZC52MS5NYW5pZm'
-    'VzdEVudHJ5SW5wdXRSB2VudHJpZXNCBwoFX25hbWVCDgoMX2VtYmVkX3Jvb3Rz');
+    'VzdEVudHJ5SW5wdXRSB2VudHJpZXMSJgoMcmVwYWlyX3BhdGhzGAUgASgISAJSC3JlcGFpclBh'
+    'dGhziAEBQgcKBV9uYW1lQg4KDF9lbWJlZF9yb290c0IPCg1fcmVwYWlyX3BhdGhz');
 
 @$core.Deprecated('Use manifestEntryInfoDescriptor instead')
 const ManifestEntryInfo$json = {
@@ -74,11 +77,14 @@ const ManifestEntryInfo$json = {
     {'1': 'exact_size', '3': 7, '4': 1, '5': 4, '9': 2, '10': 'exactSize', '17': true},
     {'1': 'error', '3': 8, '4': 1, '5': 9, '10': 'error'},
     {'1': 'sha256', '3': 9, '4': 1, '5': 9, '10': 'sha256'},
+    {'1': 'original_path', '3': 10, '4': 1, '5': 9, '9': 3, '10': 'originalPath', '17': true},
+    {'1': 'repaired', '3': 11, '4': 1, '5': 8, '10': 'repaired'},
   ],
   '8': [
     {'1': '_path'},
     {'1': '_size'},
     {'1': '_exact_size'},
+    {'1': '_original_path'},
   ],
 };
 
@@ -89,7 +95,9 @@ final $typed_data.Uint8List manifestEntryInfoDescriptor = $convert.base64Decode(
     'BGtpbmQYBCABKAlSBGtpbmQSJwoPY29udGVudF9hZGRyZXNzGAUgASgJUg5jb250ZW50QWRkcm'
     'VzcxIZCghkYXRhX21hcBgGIAEoCVIHZGF0YU1hcBIiCgpleGFjdF9zaXplGAcgASgESAJSCWV4'
     'YWN0U2l6ZYgBARIUCgVlcnJvchgIIAEoCVIFZXJyb3ISFgoGc2hhMjU2GAkgASgJUgZzaGEyNT'
-    'ZCBwoFX3BhdGhCBwoFX3NpemVCDQoLX2V4YWN0X3NpemU=');
+    'YSKAoNb3JpZ2luYWxfcGF0aBgKIAEoCUgDUgxvcmlnaW5hbFBhdGiIAQESGgoIcmVwYWlyZWQY'
+    'CyABKAhSCHJlcGFpcmVkQgcKBV9wYXRoQgcKBV9zaXplQg0KC19leGFjdF9zaXplQhAKDl9vcm'
+    'lnaW5hbF9wYXRo');
 
 @$core.Deprecated('Use buildManifestResponseDescriptor instead')
 const BuildManifestResponse$json = {
@@ -98,6 +106,10 @@ const BuildManifestResponse$json = {
     {'1': 'manifest', '3': 1, '4': 1, '5': 12, '10': 'manifest'},
     {'1': 'link', '3': 2, '4': 1, '5': 9, '10': 'link'},
     {'1': 'entries', '3': 3, '4': 3, '5': 11, '6': '.antd.v1.ManifestEntryInfo', '10': 'entries'},
+    {'1': 'name', '3': 4, '4': 1, '5': 9, '9': 0, '10': 'name', '17': true},
+  ],
+  '8': [
+    {'1': '_name'},
   ],
 };
 
@@ -105,7 +117,7 @@ const BuildManifestResponse$json = {
 final $typed_data.Uint8List buildManifestResponseDescriptor = $convert.base64Decode(
     'ChVCdWlsZE1hbmlmZXN0UmVzcG9uc2USGgoIbWFuaWZlc3QYASABKAxSCG1hbmlmZXN0EhIKBG'
     'xpbmsYAiABKAlSBGxpbmsSNAoHZW50cmllcxgDIAMoCzIaLmFudGQudjEuTWFuaWZlc3RFbnRy'
-    'eUluZm9SB2VudHJpZXM=');
+    'eUluZm9SB2VudHJpZXMSFwoEbmFtZRgEIAEoCUgAUgRuYW1liAEBQgcKBV9uYW1l');
 
 @$core.Deprecated('Use decodeManifestRequestDescriptor instead')
 const DecodeManifestRequest$json = {

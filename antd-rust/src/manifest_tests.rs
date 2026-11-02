@@ -384,6 +384,7 @@ impl v1::manifest_service_server::ManifestService for MockManifests {
         Ok(Response::new(v1::BuildManifestResponse {
             manifest: HEADER.to_vec(),
             link: LINK.into(),
+            name: None,
             entries: vec![
                 v1::ManifestEntryInfo {
                     effective_name: "a.txt".into(),
