@@ -4,25 +4,19 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that e
 
 ## Installation
 
+`antd-mcp` is not yet published to PyPI. Until it is, install it from source:
+
 ```bash
-# Run without installing (recommended for MCP client configs)
-uvx antd-mcp
-
-# Or install as a tool
-pipx install antd-mcp
-
-# Or into an environment
-pip install antd-mcp
+git clone https://github.com/WithAutonomi/ant-sdk.git
+uv tool install ./ant-sdk/antd-mcp
 ```
 
-Python 3.10+. Pulls in the [`antd`](https://pypi.org/project/antd/) Python SDK (REST transport) automatically. Needs a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon (tested against antd 0.12.x).
+Requires [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and Python 3.10+. The install pulls in the [`antd`](https://pypi.org/project/antd/) Python SDK (REST transport) automatically. If `uv` warns that its executable directory is not on `PATH`, run `uv tool update-shell`, then restart your terminal and MCP client. Needs a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon (tested against antd 0.12.x).
 
-From a source checkout: `pip install -e antd-mcp/`.
-
-Add it to Claude Code in one line:
+Add the installed server to Claude Code:
 
 ```bash
-claude mcp add antd-autonomi -- uvx antd-mcp
+claude mcp add antd-autonomi -- antd-mcp
 ```
 
 ## Running
@@ -54,12 +48,13 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 {
   "mcpServers": {
     "antd-autonomi": {
-      "command": "uvx",
-      "args": ["antd-mcp"]
+      "command": "antd-mcp"
     }
   }
 }
 ```
+
+If Claude Desktop cannot find `antd-mcp`, run `uv tool dir --bin` and use the full path to the `antd-mcp` executable in that directory as `command`.
 
 The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_BASE_URL": "http://your-host:port"}` only if you need to override discovery.
 
