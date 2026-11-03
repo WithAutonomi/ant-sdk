@@ -494,6 +494,8 @@ impl GrpcClient {
             name: given(&opts.name).map(str::to_string),
             torrent_info_hashes: opts.torrent_info_hashes.clone(),
             embed_roots: Some(!opts.keep_shrunk_data_maps),
+            // Not exposed by this SDK yet (V2-1771 ships it in antd-go first).
+            repair_paths: None,
             entries: entries
                 .iter()
                 .map(|e| pb::ManifestEntryInput {

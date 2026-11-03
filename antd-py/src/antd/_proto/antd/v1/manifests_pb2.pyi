@@ -21,19 +21,21 @@ class ManifestEntryInput(_message.Message):
     def __init__(self, path: _Optional[str] = ..., size: _Optional[int] = ..., sha256: _Optional[str] = ..., data_map: _Optional[str] = ..., address: _Optional[str] = ...) -> None: ...
 
 class BuildManifestRequest(_message.Message):
-    __slots__ = ("name", "torrent_info_hashes", "embed_roots", "entries")
+    __slots__ = ("name", "torrent_info_hashes", "embed_roots", "entries", "repair_paths")
     NAME_FIELD_NUMBER: _ClassVar[int]
     TORRENT_INFO_HASHES_FIELD_NUMBER: _ClassVar[int]
     EMBED_ROOTS_FIELD_NUMBER: _ClassVar[int]
     ENTRIES_FIELD_NUMBER: _ClassVar[int]
+    REPAIR_PATHS_FIELD_NUMBER: _ClassVar[int]
     name: str
     torrent_info_hashes: _containers.RepeatedScalarFieldContainer[str]
     embed_roots: bool
     entries: _containers.RepeatedCompositeFieldContainer[ManifestEntryInput]
-    def __init__(self, name: _Optional[str] = ..., torrent_info_hashes: _Optional[_Iterable[str]] = ..., embed_roots: bool = ..., entries: _Optional[_Iterable[_Union[ManifestEntryInput, _Mapping]]] = ...) -> None: ...
+    repair_paths: bool
+    def __init__(self, name: _Optional[str] = ..., torrent_info_hashes: _Optional[_Iterable[str]] = ..., embed_roots: bool = ..., entries: _Optional[_Iterable[_Union[ManifestEntryInput, _Mapping]]] = ..., repair_paths: bool = ...) -> None: ...
 
 class ManifestEntryInfo(_message.Message):
-    __slots__ = ("effective_name", "path", "size", "kind", "content_address", "data_map", "exact_size", "error", "sha256")
+    __slots__ = ("effective_name", "path", "size", "kind", "content_address", "data_map", "exact_size", "error", "sha256", "original_path", "repaired")
     EFFECTIVE_NAME_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
     SIZE_FIELD_NUMBER: _ClassVar[int]
@@ -43,6 +45,8 @@ class ManifestEntryInfo(_message.Message):
     EXACT_SIZE_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
     SHA256_FIELD_NUMBER: _ClassVar[int]
+    ORIGINAL_PATH_FIELD_NUMBER: _ClassVar[int]
+    REPAIRED_FIELD_NUMBER: _ClassVar[int]
     effective_name: str
     path: str
     size: int
@@ -52,17 +56,21 @@ class ManifestEntryInfo(_message.Message):
     exact_size: int
     error: str
     sha256: str
-    def __init__(self, effective_name: _Optional[str] = ..., path: _Optional[str] = ..., size: _Optional[int] = ..., kind: _Optional[str] = ..., content_address: _Optional[str] = ..., data_map: _Optional[str] = ..., exact_size: _Optional[int] = ..., error: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
+    original_path: str
+    repaired: bool
+    def __init__(self, effective_name: _Optional[str] = ..., path: _Optional[str] = ..., size: _Optional[int] = ..., kind: _Optional[str] = ..., content_address: _Optional[str] = ..., data_map: _Optional[str] = ..., exact_size: _Optional[int] = ..., error: _Optional[str] = ..., sha256: _Optional[str] = ..., original_path: _Optional[str] = ..., repaired: bool = ...) -> None: ...
 
 class BuildManifestResponse(_message.Message):
-    __slots__ = ("manifest", "link", "entries")
+    __slots__ = ("manifest", "link", "entries", "name")
     MANIFEST_FIELD_NUMBER: _ClassVar[int]
     LINK_FIELD_NUMBER: _ClassVar[int]
     ENTRIES_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
     manifest: bytes
     link: str
     entries: _containers.RepeatedCompositeFieldContainer[ManifestEntryInfo]
-    def __init__(self, manifest: _Optional[bytes] = ..., link: _Optional[str] = ..., entries: _Optional[_Iterable[_Union[ManifestEntryInfo, _Mapping]]] = ...) -> None: ...
+    name: str
+    def __init__(self, manifest: _Optional[bytes] = ..., link: _Optional[str] = ..., entries: _Optional[_Iterable[_Union[ManifestEntryInfo, _Mapping]]] = ..., name: _Optional[str] = ...) -> None: ...
 
 class DecodeManifestRequest(_message.Message):
     __slots__ = ("manifest", "link", "resolve")

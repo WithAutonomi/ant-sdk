@@ -51,6 +51,18 @@ type BuildManifestOptions struct {
 	// embeds the root when it is at most 64 KiB, so recipients skip that
 	// fetch (ADR-0006's policy).
 	KeepShrunkDataMaps bool
+	// RepairPaths has the daemon repair entry paths and Name to the
+	// portable path rules instead of rejecting them, using ant-core's rules:
+	// forbidden characters become `_`, trailing spaces and dots are dropped,
+	// reserved device names gain a `_` prefix, long names are shortened
+	// keeping their extension, and a name that collides with another (as a
+	// case-insensitive filesystem sees them) gets " (2)", " (3)" and so on
+	// before its extension. Each entry then reports OriginalPath and
+	// Repaired. For callers holding arbitrary user file names.
+	//
+	// Requires antd 0.18.0 or later. An older daemon ignores it and rejects
+	// invalid paths as before.
+	RepairPaths bool
 }
 
 // ManifestEntryInfo is what a manifest says about one entry.
@@ -77,10 +89,19 @@ type ManifestEntryInfo struct {
 	ExactSize *uint64
 	// Error says why a resolving decode failed for this entry.
 	Error string
+	// OriginalPath is the path as given, before repair. Set only by a
+	// BuildManifest with RepairPaths, and only for an entry with a path.
+	OriginalPath string
+	// Repaired reports that repair changed the path (BuildManifest with
+	// RepairPaths only).
+	Repaired bool
 }
 
 // BuiltManifest is the result of BuildManifest.
 type BuiltManifest struct {
+	// Name is the manifest's name as written: after repair, with
+	// RepairPaths. Empty when there is none.
+	Name string
 	// Manifest is the `.ant` bytes.
 	Manifest []byte
 	// Link is the `ant://manifest/` link, set only when it fits the
@@ -187,6 +208,9 @@ func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput
 	if len(opts.TorrentInfoHashes) > 0 {
 		body["torrent_info_hashes"] = opts.TorrentInfoHashes
 	}
+	if opts.RepairPaths {
+		body["repair_paths"] = true
+	}
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/manifests/build", body)
 	if err != nil {
 		return nil, err
@@ -196,6 +220,7 @@ func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput
 		return nil, fmt.Errorf("antd: BuildManifest: manifest is not valid base64: %w", err)
 	}
 	return &BuiltManifest{
+		Name:     str(j, "name"),
 		Manifest: raw,
 		Link:     str(j, "link"),
 		Entries:  parseManifestEntries(arrAt(j, "entries")),
@@ -267,6 +292,8 @@ func parseManifestEntries(raw []any) []ManifestEntryInfo {
 			DataMap:        str(m, "data_map"),
 			ExactSize:      optUint64(m, "exact_size"),
 			Error:          str(m, "error"),
+			OriginalPath:   str(m, "original_path"),
+			Repaired:       boolField(m, "repaired"),
 		})
 	}
 	return out
@@ -291,6 +318,10 @@ func (c *GrpcClient) BuildManifest(ctx context.Context, entries []ManifestEntryI
 	}
 	if opts.Name != "" {
 		req.Name = &opts.Name
+	}
+	if opts.RepairPaths {
+		repair := true
+		req.RepairPaths = &repair
 	}
 	for _, e := range entries {
 		in := &pb.ManifestEntryInput{Size: e.Size}
@@ -318,6 +349,7 @@ func (c *GrpcClient) BuildManifest(ctx context.Context, entries []ManifestEntryI
 		return nil, errorFromGrpc(err)
 	}
 	return &BuiltManifest{
+		Name:     resp.GetName(),
 		Manifest: resp.GetManifest(),
 		Link:     resp.GetLink(),
 		Entries:  fromPbManifestEntries(resp.GetEntries()),
@@ -380,6 +412,8 @@ func fromPbManifestEntries(entries []*pb.ManifestEntryInfo) []ManifestEntryInfo 
 			DataMap:        e.GetDataMap(),
 			ExactSize:      e.ExactSize,
 			Error:          e.GetError(),
+			OriginalPath:   e.GetOriginalPath(),
+			Repaired:       e.GetRepaired(),
 		})
 	}
 	return out

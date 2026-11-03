@@ -27,6 +27,7 @@ defmodule Antd.V1.BuildManifestRequest do
   field :torrent_info_hashes, 2, repeated: true, type: :string, json_name: "torrentInfoHashes"
   field :embed_roots, 3, proto3_optional: true, type: :bool, json_name: "embedRoots"
   field :entries, 4, repeated: true, type: Antd.V1.ManifestEntryInput
+  field :repair_paths, 5, proto3_optional: true, type: :bool, json_name: "repairPaths"
 end
 
 defmodule Antd.V1.ManifestEntryInfo do
@@ -46,6 +47,8 @@ defmodule Antd.V1.ManifestEntryInfo do
   field :exact_size, 7, proto3_optional: true, type: :uint64, json_name: "exactSize"
   field :error, 8, type: :string
   field :sha256, 9, type: :string
+  field :original_path, 10, proto3_optional: true, type: :string, json_name: "originalPath"
+  field :repaired, 11, type: :bool
 end
 
 defmodule Antd.V1.BuildManifestResponse do
@@ -59,6 +62,7 @@ defmodule Antd.V1.BuildManifestResponse do
   field :manifest, 1, type: :bytes
   field :link, 2, type: :string
   field :entries, 3, repeated: true, type: Antd.V1.ManifestEntryInfo
+  field :name, 4, proto3_optional: true, type: :string
 end
 
 defmodule Antd.V1.DecodeManifestRequest do

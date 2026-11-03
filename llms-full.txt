@@ -557,6 +557,25 @@ address). `size` is recorded as given, the creator's claim; unset records none.
 when the root is at most 64 KiB, as the `ant` CLI does, so readers skip that
 fetch; `false` embeds DataMaps exactly as given.
 
+`repair_paths` (default false; antd 0.18.0 or later): instead of rejecting a
+path or `name` that breaks the portable rules, repair it with ant-core's rules.
+Use it when the names come from users, for example when exporting a service's
+folders. Each `/`-separated component is repaired on its own:
+- forbidden characters (`< > : " | ? * \` and control characters) become `_`;
+- trailing spaces and dots are dropped;
+- a reserved device name (`CON`, `aux.txt` and so on) gains a `_` prefix;
+- empty, `.` and `..` components are dropped, and a component with nothing
+  usable left becomes `_`.
+
+A file name over 255 bytes, or a path over 1,024, has its stem shortened and
+keeps its extension. Then names that collide, as a case-insensitive filesystem
+sees them, are made distinct. That includes a file named like another entry's
+directory. Every distinct name is kept, and each later duplicate gets ` (2)`,
+` (3)` and so on before its extension; directories are never renamed. Entries
+without a path are left alone, and the same input always gives the same
+bytes. An entry that can't be repaired (its directories alone pass 1,024
+bytes) is a 400 naming `entries[i]`.
+
 Request:
 ```json
 {
@@ -588,6 +607,9 @@ Response (`manifest` is the base64 of the raw `.ant` bytes):
   the content address in hex when there is no path), not in request order.
 - `link` is present only when it fits 1,500 bytes; otherwise it is omitted and
   the `.ant` bytes (`manifest`) are what you share.
+- With `repair_paths`, each entry with a path also carries `original_path` (the
+  path as given), plus `repaired: true` when repair changed it (omitted when
+  false). `name` comes back as written, after repair.
 - Unset fields are omitted: `size` when none was recorded, `exact_size` when
   unknown (an embedded root DataMap carries it, so embedded entries have it
   after `embed_roots`), `path` when there is none. Never `0` for unset: `0` is
@@ -703,9 +725,9 @@ Mirrors REST `/v1/pointers` 1:1; counters are decimal strings, unset values are 
 
 ### ManifestService (manifests.proto)
 Mirrors REST `/v1/manifests` 1:1; the `.ant` bytes are raw `bytes` here (base64 only on REST), and optional values use proto3 `optional` (check presence, not the zero value). Both calls are unary and free.
-- `Build(BuildManifestRequest{name?, torrent_info_hashes, embed_roots?, entries[{path?, size?, sha256?, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`: `embed_roots` unset means true; `link` is empty when it would pass 1,500 bytes
+- `Build(BuildManifestRequest{name?, torrent_info_hashes, embed_roots?, entries[{path?, size?, sha256?, data_map | address}], repair_paths?}) → BuildManifestResponse{manifest: bytes, link, entries, name?}`: `embed_roots` unset means true; `repair_paths` (field 5; antd 0.18.0 or later) unset means false; `link` is empty when it would pass 1,500 bytes
 - `Decode(DecodeManifestRequest{manifest: bytes | link, resolve}) → DecodeManifestResponse{source, name?, torrent_info_hash_v1, torrent_info_hash_v2, entries}`
-- `ManifestEntryInfo{effective_name, path?, size?, kind, content_address, data_map, exact_size?, error, sha256}`: `data_map` is empty for public entries and on build; `error` is empty unless `resolve` failed for that entry; `sha256` (field 9, plain string; antd 0.17.0 or later) is empty when the manifest records none. On the request side `ManifestEntryInput.sha256` is `optional string` (5): set it only when given, so presence means something
+- `ManifestEntryInfo{effective_name, path?, size?, kind, content_address, data_map, exact_size?, error, sha256}`: `data_map` is empty for public entries and on build; `error` is empty unless `resolve` failed for that entry; `sha256` (field 9, plain string; antd 0.17.0 or later) is empty when the manifest records none; `original_path` (10, optional) and `repaired` (11) are set only by a build with `repair_paths`. On the request side `ManifestEntryInput.sha256` is `optional string` (5): set it only when given, so presence means something
 - A manifest can be 64 MiB and the server accepts requests up to 100 MiB, so clients raise their receive (and send) limit for these calls: the SDKs set 256 MiB, per call where the gRPC library allows it, otherwise on a second channel for the manifest service. Dart and Elixir set none, because their gRPC libraries have none to raise: grpc-dart enforces no message size limit in either direction and has no setting for one, and grpc-elixir 0.11 reads a unary response whole and caps sends only at its 2 GiB default
 - Errors: invalid entry or input → INVALID_ARGUMENT, with the same `entries[i]` message as REST
 
@@ -761,7 +783,7 @@ Wire field names; each SDK cases them idiomatically. Sizes are optional unsigned
 | Type | Fields | Description |
 |------|--------|-------------|
 | ManifestEntryInput | path?, size?, sha256?, data_map \| address | One file to build from: exactly one of `data_map` (hex, embedded) or `address` (hex, public); both or neither is refused before sending, as the SDK's bad-request error (status 400). `sha256?` is the plaintext's SHA-256 (hex, antd 0.17.0 or later) to record; unset or empty is not sent, and it is passed through unchecked (the daemon answers a malformed one with a 400) |
-| BuildManifestOptions | name?, torrent_info_hashes, embed_roots (default true) | Go, Java, C++ and Rust spell the last as `KeepShrunkDataMaps` / `keepShrunkDataMaps` / `keep_shrunk_data_maps` (default false) |
+| BuildManifestOptions | name?, torrent_info_hashes, embed_roots (default true), repair_paths (default false) | Go, Java, C++ and Rust spell `embed_roots` as `KeepShrunkDataMaps` / `keepShrunkDataMaps` / `keep_shrunk_data_maps` (default false). `repair_paths` (antd 0.18.0 or later) is in antd-go only so far, as `RepairPaths` |
 | ManifestEntryInfo | effective_name, path?, size?, kind ("embedded" \| "public"), content_address, data_map, exact_size?, error, sha256? | What a manifest says about one entry; `data_map` on decode only, `exact_size` and `error` set by `resolve` (or an embedded root); `sha256` is the recorded hash, on build and decode, none when the manifest records none (antd 0.17.0 or later) |
 | BuiltManifest | manifest (raw `.ant` bytes), link, entries | `link` is empty or none when it would pass 1,500 bytes; entries are sorted by effective name |
 | DecodedManifest | source ("manifest" \| "file_link"), name?, torrent_info_hash_v1, torrent_info_hash_v2, entries | A decoded manifest or file link |
@@ -1124,7 +1146,8 @@ func (c *Client) PointerPrepare(ctx context.Context, req PointerPrepareRequest) 
 func (c *Client) PointerFinalize(ctx context.Context, uploadID string, txHashes map[string]string) (*PointerFinalizeResult, error)
 
 // Manifests (ADR-0006, antd 0.16.0 or later; free; sizes are *uint64, unset is nil; bytes are []byte); same methods on GrpcClient
-// BuildManifestOptions{Name, TorrentInfoHashes, KeepShrunkDataMaps}; ManifestEntryInput{Path, Size, Sha256, DataMap, Address}; upload results and ManifestEntryInfo carry Sha256 (antd 0.17.0 or later; "" when none)
+// BuildManifestOptions{Name, TorrentInfoHashes, KeepShrunkDataMaps, RepairPaths}; ManifestEntryInput{Path, Size, Sha256, DataMap, Address}; upload results and ManifestEntryInfo carry Sha256 (antd 0.17.0 or later; "" when none)
+// RepairPaths (antd 0.18.0 or later): the daemon repairs paths and Name to the portable rules instead of rejecting them; BuiltManifest.Name is the name as written, and each ManifestEntryInfo reports OriginalPath and Repaired
 func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error)
 func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error)
 func (c *Client) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error)

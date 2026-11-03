@@ -142,12 +142,14 @@ class BuildManifestRequest extends $pb.GeneratedMessage {
     $core.Iterable<$core.String>? torrentInfoHashes,
     $core.bool? embedRoots,
     $core.Iterable<ManifestEntryInput>? entries,
+    $core.bool? repairPaths,
   }) {
     final result = create();
     if (name != null) result.name = name;
     if (torrentInfoHashes != null) result.torrentInfoHashes.addAll(torrentInfoHashes);
     if (embedRoots != null) result.embedRoots = embedRoots;
     if (entries != null) result.entries.addAll(entries);
+    if (repairPaths != null) result.repairPaths = repairPaths;
     return result;
   }
 
@@ -161,6 +163,7 @@ class BuildManifestRequest extends $pb.GeneratedMessage {
     ..pPS(2, _omitFieldNames ? '' : 'torrentInfoHashes')
     ..aOB(3, _omitFieldNames ? '' : 'embedRoots')
     ..pc<ManifestEntryInput>(4, _omitFieldNames ? '' : 'entries', $pb.PbFieldType.PM, subBuilder: ManifestEntryInput.create)
+    ..aOB(5, _omitFieldNames ? '' : 'repairPaths')
     ..hasRequiredFields = false
   ;
 
@@ -209,6 +212,23 @@ class BuildManifestRequest extends $pb.GeneratedMessage {
 
   @$pb.TagNumber(4)
   $pb.PbList<ManifestEntryInput> get entries => $_getList(3);
+
+  /// Repair entry paths and `name` to the portable path rules instead of
+  /// rejecting them (V2-1771). Forbidden characters become `_`, trailing
+  /// spaces and dots are dropped, reserved device names gain a `_` prefix,
+  /// long names are shortened keeping their extension, and a name that
+  /// collides with another (as a case-insensitive filesystem sees them) gets
+  /// ` (2)`, ` (3)` and so on before its extension. Each entry then reports
+  /// `original_path` and `repaired`. Unset: false, and an invalid path is
+  /// rejected.
+  @$pb.TagNumber(5)
+  $core.bool get repairPaths => $_getBF(4);
+  @$pb.TagNumber(5)
+  set repairPaths($core.bool value) => $_setBool(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasRepairPaths() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearRepairPaths() => $_clearField(5);
 }
 
 /// What a manifest says about one entry.
@@ -223,6 +243,8 @@ class ManifestEntryInfo extends $pb.GeneratedMessage {
     $fixnum.Int64? exactSize,
     $core.String? error,
     $core.String? sha256,
+    $core.String? originalPath,
+    $core.bool? repaired,
   }) {
     final result = create();
     if (effectiveName != null) result.effectiveName = effectiveName;
@@ -234,6 +256,8 @@ class ManifestEntryInfo extends $pb.GeneratedMessage {
     if (exactSize != null) result.exactSize = exactSize;
     if (error != null) result.error = error;
     if (sha256 != null) result.sha256 = sha256;
+    if (originalPath != null) result.originalPath = originalPath;
+    if (repaired != null) result.repaired = repaired;
     return result;
   }
 
@@ -252,6 +276,8 @@ class ManifestEntryInfo extends $pb.GeneratedMessage {
     ..a<$fixnum.Int64>(7, _omitFieldNames ? '' : 'exactSize', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..aOS(8, _omitFieldNames ? '' : 'error')
     ..aOS(9, _omitFieldNames ? '' : 'sha256')
+    ..aOS(10, _omitFieldNames ? '' : 'originalPath')
+    ..aOB(11, _omitFieldNames ? '' : 'repaired')
     ..hasRequiredFields = false
   ;
 
@@ -363,6 +389,27 @@ class ManifestEntryInfo extends $pb.GeneratedMessage {
   $core.bool hasSha256() => $_has(8);
   @$pb.TagNumber(9)
   void clearSha256() => $_clearField(9);
+
+  /// Build with `repair_paths` only: the path as given, before repair. Unset
+  /// otherwise, and for an entry with no path.
+  @$pb.TagNumber(10)
+  $core.String get originalPath => $_getSZ(9);
+  @$pb.TagNumber(10)
+  set originalPath($core.String value) => $_setString(9, value);
+  @$pb.TagNumber(10)
+  $core.bool hasOriginalPath() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearOriginalPath() => $_clearField(10);
+
+  /// Build with `repair_paths` only: whether repair changed the path.
+  @$pb.TagNumber(11)
+  $core.bool get repaired => $_getBF(10);
+  @$pb.TagNumber(11)
+  set repaired($core.bool value) => $_setBool(10, value);
+  @$pb.TagNumber(11)
+  $core.bool hasRepaired() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearRepaired() => $_clearField(11);
 }
 
 class BuildManifestResponse extends $pb.GeneratedMessage {
@@ -370,11 +417,13 @@ class BuildManifestResponse extends $pb.GeneratedMessage {
     $core.List<$core.int>? manifest,
     $core.String? link,
     $core.Iterable<ManifestEntryInfo>? entries,
+    $core.String? name,
   }) {
     final result = create();
     if (manifest != null) result.manifest = manifest;
     if (link != null) result.link = link;
     if (entries != null) result.entries.addAll(entries);
+    if (name != null) result.name = name;
     return result;
   }
 
@@ -387,6 +436,7 @@ class BuildManifestResponse extends $pb.GeneratedMessage {
     ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'manifest', $pb.PbFieldType.OY)
     ..aOS(2, _omitFieldNames ? '' : 'link')
     ..pc<ManifestEntryInfo>(3, _omitFieldNames ? '' : 'entries', $pb.PbFieldType.PM, subBuilder: ManifestEntryInfo.create)
+    ..aOS(4, _omitFieldNames ? '' : 'name')
     ..hasRequiredFields = false
   ;
 
@@ -431,6 +481,16 @@ class BuildManifestResponse extends $pb.GeneratedMessage {
   /// In encoded order (sorted by effective name).
   @$pb.TagNumber(3)
   $pb.PbList<ManifestEntryInfo> get entries => $_getList(2);
+
+  /// The manifest's name as written: repaired, with `repair_paths`.
+  @$pb.TagNumber(4)
+  $core.String get name => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set name($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasName() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearName() => $_clearField(4);
 }
 
 enum DecodeManifestRequest_Input {

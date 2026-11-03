@@ -5852,6 +5852,16 @@ pub struct BuildManifestRequest {
     pub embed_roots: ::core::option::Option<bool>,
     #[prost(message, repeated, tag = "4")]
     pub entries: ::prost::alloc::vec::Vec<ManifestEntryInput>,
+    /// Repair entry paths and `name` to the portable path rules instead of
+    /// rejecting them (V2-1771). Forbidden characters become `_`, trailing
+    /// spaces and dots are dropped, reserved device names gain a `_` prefix,
+    /// long names are shortened keeping their extension, and a name that
+    /// collides with another (as a case-insensitive filesystem sees them) gets
+    /// ` (2)`, ` (3)` and so on before its extension. Each entry then reports
+    /// `original_path` and `repaired`. Unset: false, and an invalid path is
+    /// rejected.
+    #[prost(bool, optional, tag = "5")]
+    pub repair_paths: ::core::option::Option<bool>,
 }
 /// What a manifest says about one entry.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5885,6 +5895,13 @@ pub struct ManifestEntryInfo {
     /// when there is none.
     #[prost(string, tag = "9")]
     pub sha256: ::prost::alloc::string::String,
+    /// Build with `repair_paths` only: the path as given, before repair. Unset
+    /// otherwise, and for an entry with no path.
+    #[prost(string, optional, tag = "10")]
+    pub original_path: ::core::option::Option<::prost::alloc::string::String>,
+    /// Build with `repair_paths` only: whether repair changed the path.
+    #[prost(bool, tag = "11")]
+    pub repaired: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BuildManifestResponse {
@@ -5898,6 +5915,9 @@ pub struct BuildManifestResponse {
     /// In encoded order (sorted by effective name).
     #[prost(message, repeated, tag = "3")]
     pub entries: ::prost::alloc::vec::Vec<ManifestEntryInfo>,
+    /// The manifest's name as written: repaired, with `repair_paths`.
+    #[prost(string, optional, tag = "4")]
+    pub name: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DecodeManifestRequest {

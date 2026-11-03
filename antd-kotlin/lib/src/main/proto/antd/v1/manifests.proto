@@ -54,6 +54,15 @@ message BuildManifestRequest {
   // written (ADR-0006's policy); fetches wrapper records. Unset: true.
   optional bool embed_roots = 3;
   repeated ManifestEntryInput entries = 4;
+  // Repair entry paths and `name` to the portable path rules instead of
+  // rejecting them (V2-1771). Forbidden characters become `_`, trailing
+  // spaces and dots are dropped, reserved device names gain a `_` prefix,
+  // long names are shortened keeping their extension, and a name that
+  // collides with another (as a case-insensitive filesystem sees them) gets
+  // ` (2)`, ` (3)` and so on before its extension. Each entry then reports
+  // `original_path` and `repaired`. Unset: false, and an invalid path is
+  // rejected.
+  optional bool repair_paths = 5;
 }
 
 // What a manifest says about one entry.
@@ -78,6 +87,11 @@ message ManifestEntryInfo {
   // The SHA-256 recorded in the manifest, hex: the creator's claim. Empty
   // when there is none.
   string sha256 = 9;
+  // Build with `repair_paths` only: the path as given, before repair. Unset
+  // otherwise, and for an entry with no path.
+  optional string original_path = 10;
+  // Build with `repair_paths` only: whether repair changed the path.
+  bool repaired = 11;
 }
 
 message BuildManifestResponse {
@@ -88,6 +102,8 @@ message BuildManifestResponse {
   string link = 2;
   // In encoded order (sorted by effective name).
   repeated ManifestEntryInfo entries = 3;
+  // The manifest's name as written: repaired, with `repair_paths`.
+  optional string name = 4;
 }
 
 message DecodeManifestRequest {

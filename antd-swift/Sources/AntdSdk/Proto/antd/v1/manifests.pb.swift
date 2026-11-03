@@ -134,12 +134,30 @@ public nonisolated struct Antd_V1_BuildManifestRequest: Sendable {
 
   public var entries: [Antd_V1_ManifestEntryInput] = []
 
+  /// Repair entry paths and `name` to the portable path rules instead of
+  /// rejecting them (V2-1771). Forbidden characters become `_`, trailing
+  /// spaces and dots are dropped, reserved device names gain a `_` prefix,
+  /// long names are shortened keeping their extension, and a name that
+  /// collides with another (as a case-insensitive filesystem sees them) gets
+  /// ` (2)`, ` (3)` and so on before its extension. Each entry then reports
+  /// `original_path` and `repaired`. Unset: false, and an invalid path is
+  /// rejected.
+  public var repairPaths: Bool {
+    get {_repairPaths ?? false}
+    set {_repairPaths = newValue}
+  }
+  /// Returns true if `repairPaths` has been explicitly set.
+  public var hasRepairPaths: Bool {self._repairPaths != nil}
+  /// Clears the value of `repairPaths`. Subsequent reads from it will return its default value.
+  public mutating func clearRepairPaths() {self._repairPaths = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _name: String? = nil
   fileprivate var _embedRoots: Bool? = nil
+  fileprivate var _repairPaths: Bool? = nil
 }
 
 /// What a manifest says about one entry.
@@ -198,6 +216,20 @@ public nonisolated struct Antd_V1_ManifestEntryInfo: Sendable {
   /// when there is none.
   public var sha256: String = String()
 
+  /// Build with `repair_paths` only: the path as given, before repair. Unset
+  /// otherwise, and for an entry with no path.
+  public var originalPath: String {
+    get {_originalPath ?? String()}
+    set {_originalPath = newValue}
+  }
+  /// Returns true if `originalPath` has been explicitly set.
+  public var hasOriginalPath: Bool {self._originalPath != nil}
+  /// Clears the value of `originalPath`. Subsequent reads from it will return its default value.
+  public mutating func clearOriginalPath() {self._originalPath = nil}
+
+  /// Build with `repair_paths` only: whether repair changed the path.
+  public var repaired: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -205,6 +237,7 @@ public nonisolated struct Antd_V1_ManifestEntryInfo: Sendable {
   fileprivate var _path: String? = nil
   fileprivate var _size: UInt64? = nil
   fileprivate var _exactSize: UInt64? = nil
+  fileprivate var _originalPath: String? = nil
 }
 
 public nonisolated struct Antd_V1_BuildManifestResponse: Sendable {
@@ -222,9 +255,21 @@ public nonisolated struct Antd_V1_BuildManifestResponse: Sendable {
   /// In encoded order (sorted by effective name).
   public var entries: [Antd_V1_ManifestEntryInfo] = []
 
+  /// The manifest's name as written: repaired, with `repair_paths`.
+  public var name: String {
+    get {_name ?? String()}
+    set {_name = newValue}
+  }
+  /// Returns true if `name` has been explicitly set.
+  public var hasName: Bool {self._name != nil}
+  /// Clears the value of `name`. Subsequent reads from it will return its default value.
+  public mutating func clearName() {self._name = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _name: String? = nil
 }
 
 public nonisolated struct Antd_V1_DecodeManifestRequest: Sendable {
@@ -381,7 +426,7 @@ nonisolated extension Antd_V1_ManifestEntryInput: SwiftProtobuf.Message, SwiftPr
 
 nonisolated extension Antd_V1_BuildManifestRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".BuildManifestRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}torrent_info_hashes\0\u{3}embed_roots\0\u{1}entries\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}torrent_info_hashes\0\u{3}embed_roots\0\u{1}entries\0\u{3}repair_paths\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -393,6 +438,7 @@ nonisolated extension Antd_V1_BuildManifestRequest: SwiftProtobuf.Message, Swift
       case 2: try { try decoder.decodeRepeatedStringField(value: &self.torrentInfoHashes) }()
       case 3: try { try decoder.decodeSingularBoolField(value: &self._embedRoots) }()
       case 4: try { try decoder.decodeRepeatedMessageField(value: &self.entries) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self._repairPaths) }()
       default: break
       }
     }
@@ -415,6 +461,9 @@ nonisolated extension Antd_V1_BuildManifestRequest: SwiftProtobuf.Message, Swift
     if !self.entries.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.entries, fieldNumber: 4)
     }
+    try { if let v = self._repairPaths {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -423,6 +472,7 @@ nonisolated extension Antd_V1_BuildManifestRequest: SwiftProtobuf.Message, Swift
     if lhs.torrentInfoHashes != rhs.torrentInfoHashes {return false}
     if lhs._embedRoots != rhs._embedRoots {return false}
     if lhs.entries != rhs.entries {return false}
+    if lhs._repairPaths != rhs._repairPaths {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -430,7 +480,7 @@ nonisolated extension Antd_V1_BuildManifestRequest: SwiftProtobuf.Message, Swift
 
 nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ManifestEntryInfo"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}effective_name\0\u{1}path\0\u{1}size\0\u{1}kind\0\u{3}content_address\0\u{3}data_map\0\u{3}exact_size\0\u{1}error\0\u{1}sha256\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}effective_name\0\u{1}path\0\u{1}size\0\u{1}kind\0\u{3}content_address\0\u{3}data_map\0\u{3}exact_size\0\u{1}error\0\u{1}sha256\0\u{3}original_path\0\u{1}repaired\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -447,6 +497,8 @@ nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftPro
       case 7: try { try decoder.decodeSingularUInt64Field(value: &self._exactSize) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.error) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self.sha256) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self._originalPath) }()
+      case 11: try { try decoder.decodeSingularBoolField(value: &self.repaired) }()
       default: break
       }
     }
@@ -484,6 +536,12 @@ nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftPro
     if !self.sha256.isEmpty {
       try visitor.visitSingularStringField(value: self.sha256, fieldNumber: 9)
     }
+    try { if let v = self._originalPath {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 10)
+    } }()
+    if self.repaired != false {
+      try visitor.visitSingularBoolField(value: self.repaired, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -497,6 +555,8 @@ nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftPro
     if lhs._exactSize != rhs._exactSize {return false}
     if lhs.error != rhs.error {return false}
     if lhs.sha256 != rhs.sha256 {return false}
+    if lhs._originalPath != rhs._originalPath {return false}
+    if lhs.repaired != rhs.repaired {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -504,7 +564,7 @@ nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Antd_V1_BuildManifestResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".BuildManifestResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}manifest\0\u{1}link\0\u{1}entries\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}manifest\0\u{1}link\0\u{1}entries\0\u{1}name\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -515,12 +575,17 @@ nonisolated extension Antd_V1_BuildManifestResponse: SwiftProtobuf.Message, Swif
       case 1: try { try decoder.decodeSingularBytesField(value: &self.manifest) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.link) }()
       case 3: try { try decoder.decodeRepeatedMessageField(value: &self.entries) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self._name) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.manifest.isEmpty {
       try visitor.visitSingularBytesField(value: self.manifest, fieldNumber: 1)
     }
@@ -530,6 +595,9 @@ nonisolated extension Antd_V1_BuildManifestResponse: SwiftProtobuf.Message, Swif
     if !self.entries.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.entries, fieldNumber: 3)
     }
+    try { if let v = self._name {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -537,6 +605,7 @@ nonisolated extension Antd_V1_BuildManifestResponse: SwiftProtobuf.Message, Swif
     if lhs.manifest != rhs.manifest {return false}
     if lhs.link != rhs.link {return false}
     if lhs.entries != rhs.entries {return false}
+    if lhs._name != rhs._name {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

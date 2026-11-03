@@ -649,7 +649,14 @@ paths:
         creator's claim). With embed_roots (default true) a shrunk DataMap is
         resolved, fetching its wrapper records, and its root embedded when it
         is at most 64 KiB as written. Every invalid entry is named in the 400
-        message as entries[i].
+        message as entries[i]. With repair_paths (added in antd 0.18.0), entry
+        paths and the name are repaired to the portable path rules instead of
+        rejected, using ant-core's rules: forbidden characters become _,
+        trailing spaces and dots are dropped, reserved device names gain a _
+        prefix, long names are shortened keeping their extension, and a name
+        that collides with another (as a case-insensitive filesystem sees
+        them) gets " (2)", " (3)" and so on before its extension. Each entry
+        then reports original_path and repaired.
       requestBody:
         required: true
         content:
@@ -1626,6 +1633,13 @@ components:
           description: >-
             Resolve shrunk DataMaps (fetching wrapper records) and embed the
             root when it is at most 64 KiB as written.
+        repair_paths:
+          type: boolean
+          default: false
+          description: >-
+            Repair entry paths and name to the portable path rules instead of
+            rejecting them; each entry then reports original_path and
+            repaired. Added in antd 0.18.0.
         entries:
           type: array
           maxItems: 100000
@@ -1665,6 +1679,9 @@ components:
       type: object
       required: [manifest, entries]
       properties:
+        name:
+          type: string
+          description: The manifest's name as written (repaired, with repair_paths)
         manifest:
           type: string
           description: The .ant bytes, base64
@@ -1748,6 +1765,12 @@ components:
         error:
           type: string
           description: Why resolve failed for this entry
+        original_path:
+          type: string
+          description: Build with repair_paths only. The path as given, before repair.
+        repaired:
+          type: boolean
+          description: Build with repair_paths only. Present (true) when repair changed the path.
 
   responses:
     BadRequest:
