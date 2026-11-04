@@ -143,7 +143,10 @@ def stop_recorded(pid: int | None, started: str | None, timeout: float) -> Stop:
 
     On POSIX it sends SIGTERM and waits up to ``timeout`` seconds for the
     process to exit, then sends SIGKILL. Windows has no SIGTERM, so there it
-    kills the process and its descendants at once.
+    kills at once the process's descendants, each before the ones that
+    started it, and then the process. It kills nothing if it can't list them
+    or can't kill one of them, and stops if one outlives its kill: either
+    way the process stays running, so a later stop can try again.
 
     On Linux and Windows it first opens a handle that refers to one process
     for as long as it is open (a pidfd; a process handle), checks the start
@@ -323,6 +326,11 @@ def _win_children() -> dict[int, list[tuple[int, str]]]:
             children.setdefault(entry.th32ParentProcessID, []).append(
                 (entry.th32ProcessID, entry.szExeFile))
             more = _k32.Process32NextW(snapshot, ctypes.byref(entry))
+        # Either call also returns false on an error, which a partial list
+        # must not be taken for.
+        error = ctypes.get_last_error()
+        if error != 18:  # ERROR_NO_MORE_FILES: the end of the list
+            raise CannotCheck(f"can't list processes: {ctypes.WinError(error)}")
     finally:
         _k32.CloseHandle(snapshot)
     return children
@@ -373,15 +381,15 @@ def _win_stop(pid: int, started: str | None) -> Stop:
     root = _win_open(pid, _WIN_STOP)
     if root is None:
         return Stop("gone")
-    handles = [root]
+    # Each process's handle and name, after the one that started it.
+    held = [(root, f"PID {pid}")]
     try:
         created = _win_created(root)
         verdict = _verdict(created, started)
         if verdict:
             return verdict
         # The processes it started, and theirs, each held by a handle before
-        # it is checked. Any it can't kill, or can't tell is one of them, are
-        # reported, and make the stop a failure.
+        # it is checked.
         children = _win_children()
         missed = []
         tree = [(pid, int(created))]
@@ -392,29 +400,32 @@ def _win_stop(pid: int, started: str | None) -> Stop:
                 if child in seen:
                     continue
                 seen.add(child)
+                name = f"PID {child} ({program}), started by PID {parent}"
                 try:
                     found = _win_child(child, parent_created)
                 except CannotCheck as e:
-                    missed.append(f"PID {child} ({program}), started by PID {parent}: {e}")
+                    missed.append(f"{name}: {e}")
                     continue
                 if found:
-                    handles.append(found[0])
+                    held.append((found[0], name))
                     tree.append((child, found[1]))
-        for handle in handles:
-            _win_terminate(handle)
+        # The recorded process stays running until all the rest have exited,
+        # so whatever goes wrong, ant dev stop keeps it and can be run again.
+        if missed:
+            return Stop("failed", "left it running, since it couldn't stop "
+                                  + "; ".join(missed))
+        # Each process before the ones that started it.
         deadline = time.monotonic() + KILL_WAIT
-        for handle in handles:
+        for handle, name in reversed(held):
+            _win_terminate(handle)
             _k32.WaitForSingleObject(handle, max(0, int((deadline - time.monotonic()) * 1000)))
-        alive = sum(_k32.WaitForSingleObject(h, 0) == _WAIT_TIMEOUT for h in handles)
-        problems = missed
-        if alive:
-            problems = [f"{alive} of its {len(handles)} processes were still running"
-                        f" {KILL_WAIT:.0f} s after they were killed"] + missed
-        if problems:
-            return Stop("failed", "; ".join(problems))
+            if _k32.WaitForSingleObject(handle, 0) == _WAIT_TIMEOUT:
+                left = "" if handle == root else "; left the processes that started it running"
+                return Stop("failed", f"{name} was still running {KILL_WAIT:.0f} s"
+                                      f" after it was killed{left}")
         return Stop("killed")
     finally:
-        for handle in handles:
+        for handle, _ in held:
             _k32.CloseHandle(handle)
 
 

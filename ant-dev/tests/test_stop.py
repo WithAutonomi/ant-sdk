@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import errno
 import json
 import os
@@ -145,14 +146,14 @@ def kill_child_afterwards():
             pass
 
 
-def deny(monkeypatch, pid: int, access: str) -> list:
-    """Make opening ``pid`` with ``access`` fail as access denied; returns the
-    handles opened on it otherwise."""
+def deny(monkeypatch, pid: int, access: str | None) -> list:
+    """Make opening ``pid`` with ``access``, if given, fail as access denied;
+    returns the handles opened on it otherwise."""
     real = process._win_open
     opened = []
 
     def win_open(p, a):
-        if p == pid and a == getattr(process, access):
+        if p == pid and access and a == getattr(process, access):
             raise CannotCheck(f"can't open PID {p}: access denied (test)")
         handle = real(p, a)
         if p == pid and handle:
@@ -196,8 +197,8 @@ def test_on_windows_a_process_it_may_not_kill_is_left_and_kept(procs, home, monk
 
 
 @windows_only
-def test_on_windows_a_child_it_may_not_kill_fails_the_stop(procs, tmp_path, monkeypatch,
-                                                           kill_child_afterwards):
+def test_on_windows_a_child_it_may_not_kill_fails_the_stop_and_kills_nothing(
+        procs, tmp_path, monkeypatch, kill_child_afterwards):
     proc, child = parent_and_child(procs, tmp_path)
     kill_child_afterwards.append(child)
     deny(monkeypatch, child, "_WIN_STOP")
@@ -206,7 +207,7 @@ def test_on_windows_a_child_it_may_not_kill_fails_the_stop(procs, tmp_path, monk
 
     assert stop.outcome == "failed"
     assert f"PID {child} (python.exe), started by PID {proc.pid}" in stop.detail
-    proc.wait(5)
+    assert proc.poll() is None
     assert process_start_time(child)
 
 
@@ -228,6 +229,7 @@ def test_on_windows_a_child_it_cannot_even_look_at_fails_the_stop(procs, tmp_pat
 
     assert stop.outcome == "failed"
     assert f"PID {child} (python.exe)" in stop.detail
+    assert proc.poll() is None
 
 
 @windows_only
@@ -243,6 +245,57 @@ def test_on_windows_a_listed_child_that_started_before_its_parent_is_left(
     assert stop_recorded(proc.pid, process_start_time(proc.pid), 30).outcome == "killed"
     proc.wait(5)
     monkeypatch.undo()
+    assert process_start_time(child)
+
+
+@windows_only
+@pytest.mark.parametrize("why", ["it may not kill it", "it outlives its kill"])
+def test_on_windows_stop_can_be_run_again_after_a_child_it_could_not_stop(
+        procs, tmp_path, home, kill_child_afterwards, why):
+    proc, child = parent_and_child(procs, tmp_path)
+    kill_child_afterwards.append(child)
+    child_started = process_start_time(child)
+    record(devnet=proc)
+
+    with pytest.MonkeyPatch.context() as mp:
+        if why == "it may not kill it":
+            deny(mp, child, "_WIN_STOP")
+        else:
+            opened = deny(mp, child, None)
+            real = process._win_terminate
+            mp.setattr(process, "_win_terminate", lambda h: None if h in opened else real(h))
+            mp.setattr(process, "KILL_WAIT", 1.0)
+        cmd_stop.run(None)
+
+    assert proc.poll() is None
+    assert process_start_time(child) == child_started
+    assert env.load_state()["devnet_pid"] == proc.pid
+
+    cmd_stop.run(None)
+
+    proc.wait(5)
+    assert process_start_time(child) != child_started
+    assert not env.STATE_FILE.exists()
+
+
+@windows_only
+@pytest.mark.parametrize("call", ["Process32FirstW", "Process32NextW"])
+def test_on_windows_an_error_listing_the_processes_kills_nothing(
+        procs, tmp_path, monkeypatch, kill_child_afterwards, call):
+    proc, child = parent_and_child(procs, tmp_path)
+    kill_child_afterwards.append(child)
+
+    def fail(*args):
+        ctypes.set_last_error(5)  # ERROR_ACCESS_DENIED
+        return 0
+
+    monkeypatch.setattr(process._k32, call, fail)
+
+    stop = stop_recorded(proc.pid, process_start_time(proc.pid), 30)
+
+    assert stop.outcome == "unchecked"
+    assert "can't list processes" in stop.detail
+    assert proc.poll() is None
     assert process_start_time(child)
 
 
