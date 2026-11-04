@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -10,10 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from ant_dev import cmd_stop, env
-from ant_dev.process import process_start_time, stop_recorded
+from ant_dev import cmd_stop, env, process
+from ant_dev.process import CannotCheck, process_start_time, stop_recorded
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+linux_pidfd = pytest.mark.skipif(not hasattr(os, "pidfd_open"), reason="Linux pidfds")
 
 
 def sleeper(*, ignore_sigterm: bool = False, script: Path | None = None) -> subprocess.Popen:
@@ -42,6 +46,24 @@ def procs():
         proc.wait()
 
 
+@pytest.fixture
+def no_kills(monkeypatch):
+    """Make every way stop_recorded kills a process do nothing, and wait 1 s."""
+    monkeypatch.setattr(process, "KILL_WAIT", 1.0)
+    monkeypatch.setattr(cmd_stop, "ANTD_STOP_TIMEOUT", 1.0)
+    monkeypatch.setattr(cmd_stop, "DEVNET_STOP_TIMEOUT", 1.0)
+    for name in ("_kill", "_pidfd_signal", "_win_terminate"):
+        monkeypatch.setattr(process, name, lambda *args: None)
+
+
+@pytest.fixture
+def unreadable_start_times(monkeypatch):
+    """Make reading any process's start time fail."""
+    def fail(*args):
+        raise CannotCheck("can't read it (test)")
+    monkeypatch.setattr(process, "_win_created" if sys.platform == "win32" else "process_start_time", fail)
+
+
 def test_a_start_time_is_stable_and_none_once_the_process_exits(procs):
     proc = sleeper()
     procs.append(proc)
@@ -57,8 +79,8 @@ def test_a_start_time_is_stable_and_none_once_the_process_exits(procs):
 def test_a_process_that_exits_on_sigterm_is_stopped(procs):
     proc = sleeper()
     procs.append(proc)
-    assert stop_recorded(proc.pid, process_start_time(proc.pid), 30) == "stopped"
-    assert proc.wait(5) == -15
+    assert stop_recorded(proc.pid, process_start_time(proc.pid), 30).outcome == "stopped"
+    assert proc.wait(5) == -signal.SIGTERM
 
 
 @posix_only
@@ -66,9 +88,32 @@ def test_a_process_that_ignores_sigterm_is_killed_after_the_timeout(procs):
     proc = sleeper(ignore_sigterm=True)
     procs.append(proc)
     began = time.monotonic()
-    assert stop_recorded(proc.pid, process_start_time(proc.pid), 2) == "killed"
+    assert stop_recorded(proc.pid, process_start_time(proc.pid), 2).outcome == "killed"
     assert time.monotonic() - began >= 2
-    assert proc.wait(5) == -9
+    assert proc.wait(5) == -signal.SIGKILL
+
+
+@linux_pidfd
+def test_on_linux_signals_go_through_a_pidfd(procs, monkeypatch):
+    sent = []
+    real = process._pidfd_signal
+    monkeypatch.setattr(process, "_pidfd_signal", lambda fd, sig: (sent.append(sig), real(fd, sig)))
+    monkeypatch.setattr(process, "_kill", lambda *args: pytest.fail("signalled by PID"))
+    proc = sleeper()
+    procs.append(proc)
+    assert stop_recorded(proc.pid, process_start_time(proc.pid), 30).outcome == "stopped"
+    assert sent == [signal.SIGTERM]
+
+
+@linux_pidfd
+def test_without_pidfds_it_signals_by_pid(procs, monkeypatch):
+    def refuse(pid):
+        raise OSError(errno.ENOSYS, "no pidfds (test)")
+    monkeypatch.setattr(os, "pidfd_open", refuse)
+    proc = sleeper()
+    procs.append(proc)
+    assert stop_recorded(proc.pid, process_start_time(proc.pid), 30).outcome == "stopped"
+    assert proc.wait(5) == -signal.SIGTERM
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows kills the tree")
@@ -87,7 +132,7 @@ def test_on_windows_the_process_tree_is_killed(procs, tmp_path):
     child = int(child_pid.read_text())
     child_started = process_start_time(child)
     assert child_started
-    assert stop_recorded(proc.pid, process_start_time(proc.pid), 30) == "killed"
+    assert stop_recorded(proc.pid, process_start_time(proc.pid), 30).outcome == "killed"
     proc.wait(5)
     assert process_start_time(child) != child_started
 
@@ -95,14 +140,33 @@ def test_on_windows_the_process_tree_is_killed(procs, tmp_path):
 def test_a_pid_with_another_start_time_is_left_alone(procs):
     proc = sleeper()
     procs.append(proc)
-    assert stop_recorded(proc.pid, "not when it started", 2) == "replaced"
+    assert stop_recorded(proc.pid, "not when it started", 2).outcome == "replaced"
     assert proc.poll() is None
 
 
 def test_a_pid_recorded_without_a_start_time_is_left_alone(procs):
     proc = sleeper()
     procs.append(proc)
-    assert stop_recorded(proc.pid, None, 2) == "unverified"
+    assert stop_recorded(proc.pid, None, 2).outcome == "unverified"
+    assert proc.poll() is None
+
+
+def test_a_pid_whose_start_time_cannot_be_read_is_left_alone(procs, monkeypatch):
+    proc = sleeper()
+    procs.append(proc)
+    started = process_start_time(proc.pid)
+    def fail(*args):
+        raise CannotCheck("can't read it (test)")
+    monkeypatch.setattr(process, "_win_created" if sys.platform == "win32" else "process_start_time", fail)
+    stop = stop_recorded(proc.pid, started, 2)
+    assert stop == ("unchecked", "can't read it (test)")
+    assert proc.poll() is None
+
+
+def test_a_process_still_running_after_it_was_killed_has_failed(procs, no_kills):
+    proc = sleeper()
+    procs.append(proc)
+    assert stop_recorded(proc.pid, process_start_time(proc.pid), 1).outcome == "failed"
     assert proc.poll() is None
 
 
@@ -111,8 +175,8 @@ def test_a_pid_that_is_not_running_is_gone(procs):
     started = process_start_time(proc.pid)
     proc.kill()
     proc.wait()
-    assert stop_recorded(proc.pid, started, 2) == "gone"
-    assert stop_recorded(None, None, 2) == "gone"
+    assert stop_recorded(proc.pid, started, 2).outcome == "gone"
+    assert stop_recorded(None, None, 2).outcome == "gone"
 
 
 @pytest.fixture
@@ -129,6 +193,14 @@ def home(tmp_path, monkeypatch):
     return tmp_path
 
 
+def record(**procs: subprocess.Popen) -> None:
+    state = {}
+    for key, proc in procs.items():
+        state[f"{key}_pid"] = proc.pid
+        state[f"{key}_started"] = process_start_time(proc.pid)
+    env.save_state(state)
+
+
 def test_stop_signals_only_what_start_recorded_and_deletes_nothing(procs, home):
     antd = sleeper()
     devnet = sleeper()
@@ -136,12 +208,7 @@ def test_stop_signals_only_what_start_recorded_and_deletes_nothing(procs, home):
     (home / "bin").mkdir()
     other_anvil = sleeper(script=home / "bin" / "anvil")
     procs += [antd, devnet, other_anvil]
-    env.save_state({
-        "antd_pid": antd.pid,
-        "antd_started": process_start_time(antd.pid),
-        "devnet_pid": devnet.pid,
-        "devnet_started": process_start_time(devnet.pid),
-    })
+    record(antd=antd, devnet=devnet)
     # What the old stop deleted: a real node's data, and in-progress uploads.
     data = home / ".local" / "share" / "ant"
     for sub in ("nodes/node-1/record", "spill/spill_1/chunk"):
@@ -170,3 +237,43 @@ def test_stop_leaves_a_pid_that_is_no_longer_its_own(procs, home, capsys):
 
     assert other.poll() is None
     assert f"Left PID {other.pid} alone" in capsys.readouterr().out
+    assert not env.STATE_FILE.exists()
+
+
+def test_stop_keeps_the_state_of_what_it_could_not_stop(procs, home, capsys, no_kills):
+    devnet = sleeper()
+    procs.append(devnet)
+    record(devnet=devnet)
+
+    cmd_stop.run(None)
+
+    assert devnet.poll() is None
+    assert "Couldn't stop ant-devnet" in capsys.readouterr().out
+    assert env.load_state()["devnet_pid"] == devnet.pid
+
+
+def test_stop_keeps_the_state_of_what_it_could_not_check(procs, home, unreadable_start_times):
+    devnet = sleeper()
+    procs.append(devnet)
+    env.save_state({"devnet_pid": devnet.pid, "devnet_started": "recorded"})
+
+    cmd_stop.run(None)
+
+    assert devnet.poll() is None
+    assert env.load_state() == {"devnet_pid": devnet.pid, "devnet_started": "recorded"}
+
+
+def test_stop_forgets_only_what_it_stopped(procs, home):
+    antd = sleeper()
+    devnet = sleeper()
+    procs += [antd, devnet]
+    record(antd=antd)
+    state = env.load_state()
+    state.update(devnet_pid=devnet.pid, devnet_started=None)
+    env.save_state(state)
+
+    cmd_stop.run(None)
+
+    antd.wait(10)
+    assert devnet.poll() is None
+    assert env.load_state() == {"devnet_pid": devnet.pid, "devnet_started": None}

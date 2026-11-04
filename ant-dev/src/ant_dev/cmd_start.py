@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -24,7 +25,9 @@ from .env import (
     STATE_DIR,
 )
 from .process import (
+    CannotCheck,
     DEVNET_STOP_TIMEOUT,
+    KILL_WAIT,
     process_start_time,
     start_process,
     stop_recorded,
@@ -32,6 +35,14 @@ from .process import (
 )
 
 DEFAULT_REST_URL = "http://localhost:8082"
+
+
+def _start_time(pid: int) -> str | None:
+    # Without one, ant dev stop leaves the process alone and says so.
+    try:
+        return process_start_time(pid)
+    except CannotCheck:
+        return None
 
 def _discover_rest_url() -> str:
     """Try to discover antd REST URL via port file, fall back to default."""
@@ -105,7 +116,7 @@ def run(args) -> None:
     # whether the PID still belongs to it.
     state = {
         "devnet_pid": devnet_proc.pid,
-        "devnet_started": process_start_time(devnet_proc.pid),
+        "devnet_started": _start_time(devnet_proc.pid),
     }
     save_state(state)
 
@@ -127,12 +138,17 @@ def run(args) -> None:
         print(red("       Timed out waiting for devnet manifest"))
         # SIGTERM, so that ant-devnet stops its Anvil and removes its run
         # directory. It is still this process's child, so its PID can't
-        # have been reused, even if its start time couldn't be read.
-        outcome = stop_recorded(devnet_proc.pid, state["devnet_started"], DEVNET_STOP_TIMEOUT)
-        if outcome == "unverified":
+        # have been reused: if that stop didn't work, kill it outright.
+        stop = stop_recorded(devnet_proc.pid, state["devnet_started"], DEVNET_STOP_TIMEOUT)
+        if stop.outcome not in ("stopped", "killed", "gone"):
             devnet_proc.kill()
-        devnet_proc.wait()
-        clear_state()
+        try:
+            devnet_proc.wait(KILL_WAIT)
+        except subprocess.TimeoutExpired:
+            print(red(f"       ant-devnet (PID {devnet_proc.pid}) is still running;"
+                      " ant dev stop will try again"))
+        else:
+            clear_state()
         sys.exit(1)
 
     bootstrap_peers = manifest["bootstrap"]
@@ -163,7 +179,7 @@ def run(args) -> None:
     antd_proc = start_process(antd_cmd, cwd=antd_dir, env=antd_env, log_file=LOG_FILE)
     print(gray(f"       PID {antd_proc.pid}"))
     state["antd_pid"] = antd_proc.pid
-    state["antd_started"] = process_start_time(antd_proc.pid)
+    state["antd_started"] = _start_time(antd_proc.pid)
     save_state(state)
 
     # ── 3. Health check ──
