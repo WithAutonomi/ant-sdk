@@ -13,10 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from ant_dev import cmd_stop, env, process
+from ant_dev import cmd_start, cmd_stop, env, process
 from ant_dev.process import CannotCheck, process_start_time, stop_recorded
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Windows process handles")
 linux_pidfd = pytest.mark.skipif(not hasattr(os, "pidfd_open"), reason="Linux pidfds")
 
 
@@ -116,8 +117,8 @@ def test_without_pidfds_it_signals_by_pid(procs, monkeypatch):
     assert proc.wait(5) == -signal.SIGTERM
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows kills the tree")
-def test_on_windows_the_process_tree_is_killed(procs, tmp_path):
+def parent_and_child(procs, tmp_path) -> tuple[subprocess.Popen, int]:
+    """A sleeper that has started a sleeper of its own, and that child's PID."""
     child_pid = tmp_path / "child.pid"
     code = (
         "import subprocess, sys, time\n"
@@ -129,12 +130,121 @@ def test_on_windows_the_process_tree_is_killed(procs, tmp_path):
     proc = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
     procs.append(proc)
     assert proc.stdout.readline().strip() == "ready"
-    child = int(child_pid.read_text())
+    return proc, int(child_pid.read_text())
+
+
+@pytest.fixture
+def kill_child_afterwards():
+    """PIDs of children to kill once the test is over."""
+    children: list[int] = []
+    yield children
+    for pid in children:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+
+def deny(monkeypatch, pid: int, access: str) -> list:
+    """Make opening ``pid`` with ``access`` fail as access denied; returns the
+    handles opened on it otherwise."""
+    real = process._win_open
+    opened = []
+
+    def win_open(p, a):
+        if p == pid and a == getattr(process, access):
+            raise CannotCheck(f"can't open PID {p}: access denied (test)")
+        handle = real(p, a)
+        if p == pid and handle:
+            opened.append(handle)
+        return handle
+
+    monkeypatch.setattr(process, "_win_open", win_open)
+    return opened
+
+
+@windows_only
+def test_on_windows_the_process_tree_is_killed(procs, tmp_path):
+    proc, child = parent_and_child(procs, tmp_path)
     child_started = process_start_time(child)
     assert child_started
     assert stop_recorded(proc.pid, process_start_time(proc.pid), 30).outcome == "killed"
     proc.wait(5)
     assert process_start_time(child) != child_started
+
+
+@windows_only
+def test_on_windows_access_denied_is_unchecked_not_gone_or_replaced():
+    # PID 4 is the System process, which no user process may open to kill.
+    # Were it opened, its start time wouldn't match, so nothing is killed.
+    assert stop_recorded(4, "any start time", 1).outcome == "unchecked"
+    with pytest.raises(CannotCheck):
+        process_start_time(4)
+
+
+@windows_only
+def test_on_windows_a_process_it_may_not_kill_is_left_and_kept(procs, home, monkeypatch):
+    proc = sleeper()
+    procs.append(proc)
+    record(devnet=proc)
+    deny(monkeypatch, proc.pid, "_WIN_STOP")
+
+    assert stop_recorded(proc.pid, process_start_time(proc.pid), 2).outcome == "unchecked"
+    cmd_stop.run(None)
+
+    assert proc.poll() is None
+    assert env.load_state()["devnet_pid"] == proc.pid
+
+
+@windows_only
+def test_on_windows_a_child_it_may_not_kill_fails_the_stop(procs, tmp_path, monkeypatch,
+                                                           kill_child_afterwards):
+    proc, child = parent_and_child(procs, tmp_path)
+    kill_child_afterwards.append(child)
+    deny(monkeypatch, child, "_WIN_STOP")
+
+    stop = stop_recorded(proc.pid, process_start_time(proc.pid), 30)
+
+    assert stop.outcome == "failed"
+    assert f"PID {child} (python.exe), started by PID {proc.pid}" in stop.detail
+    proc.wait(5)
+    assert process_start_time(child)
+
+
+@windows_only
+def test_on_windows_a_child_it_cannot_even_look_at_fails_the_stop(procs, tmp_path, monkeypatch,
+                                                                  kill_child_afterwards):
+    proc, child = parent_and_child(procs, tmp_path)
+    kill_child_afterwards.append(child)
+    real = process._win_open
+
+    def win_open(p, a):
+        if p == child:
+            raise CannotCheck(f"can't open PID {p}: access denied (test)")
+        return real(p, a)
+
+    monkeypatch.setattr(process, "_win_open", win_open)
+
+    stop = stop_recorded(proc.pid, process_start_time(proc.pid), 30)
+
+    assert stop.outcome == "failed"
+    assert f"PID {child} (python.exe)" in stop.detail
+
+
+@windows_only
+def test_on_windows_a_listed_child_that_started_before_its_parent_is_left(
+        procs, tmp_path, monkeypatch, kill_child_afterwards):
+    # As if the parent's PID had been reused: the "child" is older than it.
+    proc, child = parent_and_child(procs, tmp_path)
+    kill_child_afterwards.append(child)
+    opened = deny(monkeypatch, child, "_WIN_STOP")
+    real = process._win_created
+    monkeypatch.setattr(process, "_win_created", lambda h: "1" if h in opened else real(h))
+
+    assert stop_recorded(proc.pid, process_start_time(proc.pid), 30).outcome == "killed"
+    proc.wait(5)
+    monkeypatch.undo()
+    assert process_start_time(child)
 
 
 def test_a_pid_with_another_start_time_is_left_alone(procs):
@@ -161,6 +271,48 @@ def test_a_pid_whose_start_time_cannot_be_read_is_left_alone(procs, monkeypatch)
     stop = stop_recorded(proc.pid, started, 2)
     assert stop == ("unchecked", "can't read it (test)")
     assert proc.poll() is None
+
+
+@posix_only
+def test_a_process_this_user_may_not_signal_cannot_be_checked(procs, monkeypatch):
+    proc = sleeper()
+    procs.append(proc)
+
+    def refuse(pid, sig):
+        raise PermissionError(errno.EPERM, "not permitted (test)")
+
+    monkeypatch.setattr(os, "kill", refuse)
+    with pytest.raises(CannotCheck):
+        process._ps_start_time(proc.pid)
+
+
+@posix_only
+@pytest.mark.parametrize("pidfds", [True, False], ids=["pidfds", "no-pidfds"])
+def test_a_signal_refused_after_the_check_fails_the_stop(procs, monkeypatch, pidfds):
+    proc = sleeper()
+    procs.append(proc)
+
+    def refuse(*args):
+        raise PermissionError(errno.EPERM, "not permitted (test)")
+
+    if not pidfds and hasattr(os, "pidfd_open"):
+        monkeypatch.setattr(os, "pidfd_open", lambda pid: (_ for _ in ()).throw(
+            OSError(errno.ENOSYS, "no pidfds (test)")))
+    monkeypatch.setattr(process, "_kill", refuse)
+    monkeypatch.setattr(process, "_pidfd_signal", refuse)
+    assert stop_recorded(proc.pid, process_start_time(proc.pid), 2).outcome == "failed"
+    assert proc.poll() is None
+
+
+def test_start_records_no_start_time_it_cannot_read(procs, monkeypatch):
+    proc = sleeper()
+    procs.append(proc)
+
+    def fail(pid):
+        raise CannotCheck("can't read it (test)")
+
+    monkeypatch.setattr(cmd_start, "process_start_time", fail)
+    assert cmd_start._start_time(proc.pid) is None
 
 
 def test_a_process_still_running_after_it_was_killed_has_failed(procs, no_kills):

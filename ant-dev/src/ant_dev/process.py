@@ -102,18 +102,13 @@ def process_start_time(pid: int) -> str | None:
     return _ps_start_time(pid)
 
 
-# Never equal to a recorded start time: ant dev start only records processes
-# it launched, which run as this user.
-_NOT_THIS_USERS = "a process this user can't signal"
-
-
 def _ps_start_time(pid: int) -> str | None:
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return None
-    except PermissionError:
-        return _NOT_THIS_USERS
+    except PermissionError as e:
+        raise CannotCheck(f"PID {pid} is a process this user can't signal: {e}") from e
     try:
         result = subprocess.run(
             ["ps", "-o", "stat=", "-o", "lstart=", "-p", str(pid)],
@@ -205,6 +200,8 @@ def _pidfd_stop(pidfd: int, pid: int, started: str | None, timeout: float) -> St
         _pidfd_signal(pidfd, signal.SIGKILL)
     except ProcessLookupError:
         return Stop("stopped")
+    except PermissionError as e:
+        return Stop("failed", f"not allowed to signal PID {pid}: {e}")
     if exited(KILL_WAIT):
         return Stop("killed")
     return Stop("failed", f"PID {pid} was still running {KILL_WAIT:.0f} s after SIGKILL")
@@ -235,6 +232,8 @@ def _posix_stop(pid: int, started: str | None, timeout: float) -> Stop:
         _kill(pid, signal.SIGKILL)
     except ProcessLookupError:
         return Stop("stopped")
+    except PermissionError as e:
+        return Stop("failed", f"not allowed to signal PID {pid}: {e}")
     if exited(KILL_WAIT):
         return Stop("killed")
     return Stop("failed", f"PID {pid} was still running {KILL_WAIT:.0f} s after SIGKILL")
@@ -285,15 +284,17 @@ if sys.platform == "win32":
 
 
 def _win_open(pid: int, access: int):
-    """A handle on process ``pid``, None if there is none, or ``_NOT_THIS_USERS``."""
+    """A handle on process ``pid``, or None if there is no such process.
+
+    Raises ``CannotCheck`` if it can't be opened, access denied included: a
+    process ant dev start launched runs as this user, but this can't tell.
+    """
     handle = _k32.OpenProcess(access, False, pid)
     if handle:
         return handle
     error = ctypes.get_last_error()
     if error == 87:  # ERROR_INVALID_PARAMETER: no such process
         return None
-    if error == 5:  # ERROR_ACCESS_DENIED
-        return _NOT_THIS_USERS
     raise CannotCheck(f"can't open PID {pid}: {ctypes.WinError(error)}")
 
 
@@ -308,22 +309,60 @@ def _win_created(handle) -> str | None:
     return str(created.dwHighDateTime << 32 | created.dwLowDateTime)
 
 
-def _win_children() -> dict[int, list[int]]:
-    """Each running process's PID, keyed by the PID of the process that started it."""
+def _win_children() -> dict[int, list[tuple[int, str]]]:
+    """Each running process's PID and program, keyed by the PID of the process that started it."""
     snapshot = _k32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
     if snapshot == _INVALID_HANDLE:
         raise CannotCheck(f"can't list processes: {ctypes.WinError(ctypes.get_last_error())}")
-    children: dict[int, list[int]] = {}
+    children: dict[int, list[tuple[int, str]]] = {}
     try:
         entry = _ProcessEntry()
         entry.dwSize = ctypes.sizeof(entry)
         more = _k32.Process32FirstW(snapshot, ctypes.byref(entry))
         while more:
-            children.setdefault(entry.th32ParentProcessID, []).append(entry.th32ProcessID)
+            children.setdefault(entry.th32ParentProcessID, []).append(
+                (entry.th32ProcessID, entry.szExeFile))
             more = _k32.Process32NextW(snapshot, ctypes.byref(entry))
     finally:
         _k32.CloseHandle(snapshot)
     return children
+
+
+def _win_child(pid: int, parent_created: int):
+    """A handle on ``pid`` and its start time if it is a running process that
+    started after its listed parent, or None if it isn't one.
+
+    A process lists the PID of the one that started it, which may since have
+    exited and had its PID reused: so a child counts only if it started after
+    its parent. Raises ``CannotCheck`` if it is a child but can't be killed,
+    or if whether it is one can't be told.
+    """
+    try:
+        handle = _win_open(pid, _WIN_STOP)
+    except CannotCheck as denied:
+        # Without the right to kill it, look only: one that started before
+        # its listed parent isn't a child, and can be left.
+        query = _win_open(pid, _WIN_QUERY)
+        if query is None:
+            return None
+        try:
+            created = _win_created(query)
+        finally:
+            _k32.CloseHandle(query)
+        if created is None or int(created) < parent_created:
+            return None
+        raise CannotCheck(f"can't kill it: {denied}") from denied
+    if handle is None:
+        return None
+    try:
+        created = _win_created(handle)
+    except CannotCheck:
+        _k32.CloseHandle(handle)
+        raise
+    if created is None or int(created) < parent_created:
+        _k32.CloseHandle(handle)
+        return None
+    return handle, int(created)
 
 
 def _win_terminate(handle) -> None:
@@ -332,8 +371,8 @@ def _win_terminate(handle) -> None:
 
 def _win_stop(pid: int, started: str | None) -> Stop:
     root = _win_open(pid, _WIN_STOP)
-    if not isinstance(root, int):
-        return _verdict(root, started)
+    if root is None:
+        return Stop("gone")
     handles = [root]
     try:
         created = _win_created(root)
@@ -341,36 +380,38 @@ def _win_stop(pid: int, started: str | None) -> Stop:
         if verdict:
             return verdict
         # The processes it started, and theirs, each held by a handle before
-        # it is checked. A process lists the PID of the one that started it,
-        # which may since have exited and had its PID reused: so a child
-        # counts only if it started after its parent.
+        # it is checked. Any it can't kill, or can't tell is one of them, are
+        # reported, and make the stop a failure.
         children = _win_children()
+        missed = []
         tree = [(pid, int(created))]
         seen = {pid}
         while tree:
             parent, parent_created = tree.pop()
-            for child in children.get(parent, []):
+            for child, program in children.get(parent, []):
                 if child in seen:
                     continue
                 seen.add(child)
-                handle = _win_open(child, _WIN_STOP)
-                if not isinstance(handle, int):
+                try:
+                    found = _win_child(child, parent_created)
+                except CannotCheck as e:
+                    missed.append(f"PID {child} ({program}), started by PID {parent}: {e}")
                     continue
-                child_created = _win_created(handle)
-                if child_created is None or int(child_created) < parent_created:
-                    _k32.CloseHandle(handle)
-                    continue
-                handles.append(handle)
-                tree.append((child, int(child_created)))
+                if found:
+                    handles.append(found[0])
+                    tree.append((child, found[1]))
         for handle in handles:
             _win_terminate(handle)
         deadline = time.monotonic() + KILL_WAIT
         for handle in handles:
             _k32.WaitForSingleObject(handle, max(0, int((deadline - time.monotonic()) * 1000)))
         alive = sum(_k32.WaitForSingleObject(h, 0) == _WAIT_TIMEOUT for h in handles)
+        problems = missed
         if alive:
-            return Stop("failed", f"{alive} of its {len(handles)} processes were still running"
-                                  f" {KILL_WAIT:.0f} s after they were killed")
+            problems = [f"{alive} of its {len(handles)} processes were still running"
+                        f" {KILL_WAIT:.0f} s after they were killed"] + missed
+        if problems:
+            return Stop("failed", "; ".join(problems))
         return Stop("killed")
     finally:
         for handle in handles:
