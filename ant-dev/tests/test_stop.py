@@ -175,11 +175,10 @@ def test_on_windows_the_process_tree_is_killed(procs, tmp_path):
 
 @windows_only
 def test_on_windows_access_denied_is_unchecked_not_gone_or_replaced():
-    # PID 4 is the System process, which no user process may open to kill.
-    # Were it opened, its start time wouldn't match, so nothing is killed.
+    # PID 4 is the System process, which no user process may open to kill,
+    # administrators included (they may still open it to look). Were it
+    # opened, its start time wouldn't match, so nothing is killed.
     assert stop_recorded(4, "any start time", 1).outcome == "unchecked"
-    with pytest.raises(CannotCheck):
-        process_start_time(4)
 
 
 @windows_only
