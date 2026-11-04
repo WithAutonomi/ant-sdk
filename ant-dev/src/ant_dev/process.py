@@ -38,19 +38,101 @@ def start_process(
     return subprocess.Popen(cmd, **kwargs)
 
 
-def stop_process(pid: int) -> bool:
-    """Kill a process by PID. Returns True if it was running."""
+# ant-devnet stops its nodes one at a time, and gives each node's writers up
+# to 15 s to finish, so a clean stop can take a while.
+DEVNET_STOP_TIMEOUT = 120.0
+ANTD_STOP_TIMEOUT = 30.0
+
+
+def process_start_time(pid: int) -> str | None:
+    """When process ``pid`` started, or None if no running process has that PID.
+
+    ``ant dev start`` records this next to each PID it launches. ``ant dev
+    stop`` signals a PID only while its start time still matches, so a PID
+    the OS has since given to another process is left alone.
+    """
+    if pid <= 0:
+        return None
+    if sys.platform.startswith("linux"):
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+        except OSError:
+            return None
+        # The command name in field 2 is in parentheses and can hold spaces,
+        # so count from the last ")": field 3 is the state, field 22 the
+        # start time in clock ticks since boot.
+        fields = stat[stat.rindex(")") + 2:].split()
+        return None if fields[0] == "Z" else fields[19]
+    if sys.platform == "win32":
+        cmd = [
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            f"(Get-Process -Id {pid} -ErrorAction Stop).StartTime"
+            ".ToUniversalTime().ToString('o')",
+        ]
+    else:
+        cmd = ["ps", "-o", "stat=", "-o", "lstart=", "-p", str(pid)]
     try:
-        if sys.platform == "win32":
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True,
-            )
-        else:
-            os.kill(pid, signal.SIGTERM)
-        return True
-    except (ProcessLookupError, OSError):
-        return False
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30,
+            env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = result.stdout.strip()
+    if result.returncode != 0 or not out:
+        return None
+    if sys.platform == "win32":
+        return out
+    state, _, started = out.partition(" ")
+    return None if state.startswith("Z") else started.strip()
+
+
+def stop_recorded(pid: int | None, started: str | None, timeout: float) -> str:
+    """Stop the process ``ant dev start`` recorded as ``pid``, and nothing else.
+
+    On POSIX it sends SIGTERM and waits up to ``timeout`` seconds for the
+    process to exit, then SIGKILL. Windows has no SIGTERM, so there it kills
+    the process tree at once.
+
+    Returns ``"stopped"`` (exited on SIGTERM), ``"killed"``, ``"gone"`` (not
+    running), ``"unverified"`` (no start time recorded, so left alone) or
+    ``"replaced"`` (the PID now belongs to another process, left alone).
+    """
+    current = process_start_time(pid) if pid else None
+    if current is None:
+        return "gone"
+    if not started:
+        return "unverified"
+    if current != started:
+        return "replaced"
+
+    def wait(seconds: float) -> bool:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if process_start_time(pid) != started:
+                return True
+            time.sleep(0.5)
+        return process_start_time(pid) != started
+
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True,
+        )
+        wait(30)
+        return "killed"
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return "gone"
+    # `wait` checks the start time last, just before the SIGKILL.
+    if wait(timeout):
+        return "stopped"
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return "stopped"
+    wait(10)
+    return "killed"
 
 
 def is_alive(pid: int) -> bool:

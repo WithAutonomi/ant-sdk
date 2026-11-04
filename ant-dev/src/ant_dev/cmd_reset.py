@@ -21,5 +21,6 @@ def run(args) -> None:
         ant_node_dir = None
         no_build = False
         enable_evm = False
+        preset = "small"
 
     start_run(_StartArgs())

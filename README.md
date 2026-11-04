@@ -501,7 +501,7 @@ The MCP server has two manifest tools, `build_manifest` and `decode_manifest`, b
 
 ```
 ant dev start [--ant-node-dir PATH] [--no-build]    # Start local environment
-ant dev stop                                         # Tear down everything
+ant dev stop                                         # Stop what ant dev start launched
 ant dev status                                       # Show running processes + health
 ant dev example <name> [-l python|csharp]             # Run named example
 ant dev init <language> [--name NAME] [--dir PATH]    # Scaffold new project

@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from .env import (
+    clear_state,
     DEVNET_MANIFEST,
     find_ant_node_dir,
     find_sdk_root,
@@ -22,7 +23,13 @@ from .env import (
     save_state,
     STATE_DIR,
 )
-from .process import start_process, wait_for_http
+from .process import (
+    DEVNET_STOP_TIMEOUT,
+    process_start_time,
+    start_process,
+    stop_recorded,
+    wait_for_http,
+)
 
 DEFAULT_REST_URL = "http://localhost:8082"
 
@@ -93,6 +100,14 @@ def run(args) -> None:
 
     devnet_proc = start_process(devnet_cmd, cwd=ant_node_dir, log_file=devnet_log)
     print(gray(f"       PID {devnet_proc.pid}"))
+    # Record each process as soon as it starts, so ant dev stop can find it
+    # even if this start fails part-way. The start time tells ant dev stop
+    # whether the PID still belongs to it.
+    state = {
+        "devnet_pid": devnet_proc.pid,
+        "devnet_started": process_start_time(devnet_proc.pid),
+    }
+    save_state(state)
 
     # Wait for manifest file to be written
     print(gray("       Waiting for devnet to be ready (this may take a while on first build)..."))
@@ -110,7 +125,14 @@ def run(args) -> None:
 
     if not manifest:
         print(red("       Timed out waiting for devnet manifest"))
-        devnet_proc.kill()
+        # SIGTERM, so that ant-devnet stops its Anvil and removes its run
+        # directory. It is still this process's child, so its PID can't
+        # have been reused, even if its start time couldn't be read.
+        outcome = stop_recorded(devnet_proc.pid, state["devnet_started"], DEVNET_STOP_TIMEOUT)
+        if outcome == "unverified":
+            devnet_proc.kill()
+        devnet_proc.wait()
+        clear_state()
         sys.exit(1)
 
     bootstrap_peers = manifest["bootstrap"]
@@ -140,18 +162,17 @@ def run(args) -> None:
     antd_cmd = ["cargo", "run", "--", "--network", "local"]
     antd_proc = start_process(antd_cmd, cwd=antd_dir, env=antd_env, log_file=LOG_FILE)
     print(gray(f"       PID {antd_proc.pid}"))
+    state["antd_pid"] = antd_proc.pid
+    state["antd_started"] = process_start_time(antd_proc.pid)
+    save_state(state)
 
     # ── 3. Health check ──
     print(yellow("[3/3] Waiting for antd to be ready..."))
     ready = wait_for_http("http://localhost:8082/health", timeout=180)
 
-    # Save state
-    save_state({
-        "devnet_pid": devnet_proc.pid,
-        "antd_pid": antd_proc.pid,
-        "wallet_configured": bool(wallet_key),
-        "bootstrap_peers": bootstrap_peers,
-    })
+    state["wallet_configured"] = bool(wallet_key)
+    state["bootstrap_peers"] = bootstrap_peers
+    save_state(state)
 
     print()
     if ready:
