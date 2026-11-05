@@ -31,7 +31,7 @@ def main(argv: list[str] | None = None) -> None:
                    help="ant-devnet size preset (default: small)")
 
     # ant dev stop
-    dev_sub.add_parser("stop", help="Tear down all local processes")
+    dev_sub.add_parser("stop", help="Stop what ant dev start launched")
 
     # ant dev status
     dev_sub.add_parser("status", help="Show running processes and health")
