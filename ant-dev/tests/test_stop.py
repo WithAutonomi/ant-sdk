@@ -248,8 +248,22 @@ def test_on_windows_a_listed_child_that_started_before_its_parent_is_left(
     assert process_start_time(child)
 
 
+def fail_waits(monkeypatch, handles: list) -> None:
+    """Make every wait on one of ``handles`` fail."""
+    real = process._k32.WaitForSingleObject
+
+    def wait(handle, ms):
+        if handle in handles:
+            ctypes.set_last_error(6)  # ERROR_INVALID_HANDLE
+            return process._WAIT_FAILED
+        return real(handle, ms)
+
+    monkeypatch.setattr(process._k32, "WaitForSingleObject", wait)
+
+
 @windows_only
-@pytest.mark.parametrize("why", ["it may not kill it", "it outlives its kill"])
+@pytest.mark.parametrize("why", ["it may not kill it", "it outlives its kill",
+                                 "the wait on its kill fails"])
 def test_on_windows_stop_can_be_run_again_after_a_child_it_could_not_stop(
         procs, tmp_path, home, kill_child_afterwards, why):
     proc, child = parent_and_child(procs, tmp_path)
@@ -261,10 +275,15 @@ def test_on_windows_stop_can_be_run_again_after_a_child_it_could_not_stop(
         if why == "it may not kill it":
             deny(mp, child, "_WIN_STOP")
         else:
+            # Its kill does nothing.
             opened = deny(mp, child, None)
+            killed = []
             real = process._win_terminate
-            mp.setattr(process, "_win_terminate", lambda h: None if h in opened else real(h))
+            mp.setattr(process, "_win_terminate",
+                       lambda h: killed.append(h) if h in opened else real(h))
             mp.setattr(process, "KILL_WAIT", 1.0)
+            if why == "the wait on its kill fails":
+                fail_waits(mp, killed)
         cmd_stop.run(None)
 
     assert proc.poll() is None
@@ -276,6 +295,22 @@ def test_on_windows_stop_can_be_run_again_after_a_child_it_could_not_stop(
     proc.wait(5)
     assert process_start_time(child) != child_started
     assert not env.STATE_FILE.exists()
+
+
+@windows_only
+def test_on_windows_a_failed_wait_is_not_taken_for_an_exit(procs, home, monkeypatch):
+    proc = sleeper()
+    procs.append(proc)
+    record(devnet=proc)
+    opened = deny(monkeypatch, proc.pid, None)
+    fail_waits(monkeypatch, opened)
+
+    with pytest.raises(CannotCheck):
+        process_start_time(proc.pid)
+    cmd_stop.run(None)
+
+    assert proc.poll() is None
+    assert env.load_state()["devnet_pid"] == proc.pid
 
 
 @windows_only

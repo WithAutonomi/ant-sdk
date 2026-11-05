@@ -284,6 +284,7 @@ if sys.platform == "win32":
     _WIN_STOP = _WIN_QUERY | 0x0001  # PROCESS_TERMINATE
     _INVALID_HANDLE = wintypes.HANDLE(-1).value
     _WAIT_TIMEOUT = 0x102
+    _WAIT_FAILED = 0xFFFFFFFF
 
 
 def _win_open(pid: int, access: int):
@@ -301,9 +302,24 @@ def _win_open(pid: int, access: int):
     raise CannotCheck(f"can't open PID {pid}: {ctypes.WinError(error)}")
 
 
+def _win_exited(handle, timeout: float) -> bool:
+    """Whether the process has exited, waiting up to ``timeout`` seconds.
+
+    Raises ``CannotCheck`` if the wait fails: that is no sign it has exited.
+    """
+    result = _k32.WaitForSingleObject(handle, max(0, int(timeout * 1000)))
+    if result == 0:  # WAIT_OBJECT_0
+        return True
+    if result == _WAIT_TIMEOUT:
+        return False
+    if result == _WAIT_FAILED:
+        raise CannotCheck(f"can't wait on it: {ctypes.WinError(ctypes.get_last_error())}")
+    raise CannotCheck(f"can't wait on it: WaitForSingleObject returned {result:#x}")
+
+
 def _win_created(handle) -> str | None:
     """When the process started, in 100 ns units, or None if it has exited."""
-    if _k32.WaitForSingleObject(handle, 0) != _WAIT_TIMEOUT:
+    if _win_exited(handle, 0):
         return None
     created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
     if not _k32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited),
@@ -417,10 +433,14 @@ def _win_stop(pid: int, started: str | None) -> Stop:
         # Each process before the ones that started it.
         deadline = time.monotonic() + KILL_WAIT
         for handle, name in reversed(held):
+            left = "" if handle == root else "; left the processes that started it running"
             _win_terminate(handle)
-            _k32.WaitForSingleObject(handle, max(0, int((deadline - time.monotonic()) * 1000)))
-            if _k32.WaitForSingleObject(handle, 0) == _WAIT_TIMEOUT:
-                left = "" if handle == root else "; left the processes that started it running"
+            try:
+                exited = _win_exited(handle, deadline - time.monotonic())
+            except CannotCheck as e:
+                return Stop("failed", f"can't tell that {name} exited after it was killed:"
+                                      f" {e}{left}")
+            if not exited:
                 return Stop("failed", f"{name} was still running {KILL_WAIT:.0f} s"
                                       f" after it was killed{left}")
         return Stop("killed")
