@@ -6,29 +6,41 @@
 
 [advisories]
 ignore = [
-    # zip 2.4.2 (transitive: ant-core -> zip). All three advisories affect only
-    # the `ZipArchive::extract()` / `ZipStreamReader::extract()` convenience
-    # APIs (fixed in zip >= 9.0.0, which ant-core does not use yet):
-    #   RUSTSEC-2026-0367 SUID/SGID preservation on extract()
-    #     https://rustsec.org/advisories/RUSTSEC-2026-0367
-    #   RUSTSEC-2026-0368 extract() creates symlinks that point outside the destination
-    #     https://rustsec.org/advisories/RUSTSEC-2026-0368
-    #   RUSTSEC-2026-0369 extract() applies Unix permissions through symlinks
-    #     https://rustsec.org/advisories/RUSTSEC-2026-0369
+    # The zip 2.4.2 ignores (RUSTSEC-2026-0367, -0368, -0369, -0429; V2-1634)
+    # were removed when the FFI moved to ant-cli-v0.3.13, whose ant-core
+    # requires zip 9 (V2-1903).
+
+    # crypto-bigint 0.5.5 (transitive: alloy-signer / k256 0.13 / ecdsa 0.16 /
+    # elliptic-curve 0.13 -> crypto-bigint 0.5). RUSTSEC-2026-0387, "Multiple
+    # timing variability issues in operations intended to be constant-time":
+    #   https://rustsec.org/advisories/RUSTSEC-2026-0387
+    #   https://github.com/RustCrypto/crypto-bigint/pull/1365
+    # Patched only in crypto-bigint >= 0.7.6; there is no 0.5.x or 0.6.x backport.
     #
-    # Why unreachable: ant-core only uses zip in `node::binary::extract_zip`
-    # (ant-core/src/node/binary.rs, also called from update.rs), which opens the
-    # archive with `ZipArchive::new`, walks entries with `by_index`, filters
-    # with `enclosed_name()`, copies the single matching file with
-    # `std::io::copy` and sets mode 0o755 itself. It never calls `extract()`.
-    # The SDK only uses `ant_core::data`, `config` and `network_defaults`;
-    # nothing here calls `ant_core::node` or `ant_core::update` at all.
+    # Why no upgrade: every alloy release up to 2.5.0 (latest) requires
+    # k256 ^0.13 and elliptic-curve ^0.13, which pin crypto-bigint 0.5. The
+    # k256 0.14 migration is open upstream (alloy-rs/core#1147) and alloy-signer
+    # still needs its own move (alloy-rs/alloy#4445). Nothing in this tree can
+    # resolve to crypto-bigint 0.7.
     #
-    # Removal condition: delete these three entries when ant-core is repinned
-    # to an ant-client release whose zip requirement is >= 9.0.0 (and
-    # `cargo audit` is clean without them). Review by 2026-11-16 regardless. Tracked in
-    # Linear V2-1634 (blocked on the ant-client zip bump, V2-1632).
-    "RUSTSEC-2026-0367",
-    "RUSTSEC-2026-0368",
-    "RUSTSEC-2026-0369",
+    # Why accepted (reduced, NOT zero, exposure):
+    #   - Most of the named operations are absent or unused here: UintRef and
+    #     BoxedMontyForm do not exist in 0.5.5, and k256 0.13 does not use
+    #     division, zero counting or Montgomery multiplication (it has its own
+    #     field arithmetic and scalar reduction).
+    #   - The subtraction leak (RustCrypto/crypto-bigint#1358) came from a
+    #     0.7-era AArch64 workaround; 0.5.5's Limb::sbb is mask-based
+    #     wrapping_sub arithmetic. 0.5.5 has not been checked with
+    #     `cargo checkct`, though, so this is not a proof.
+    #   - k256 still runs ECDSA signing scalars through U256 sbb / add_mod /
+    #     sub_mod / ct_* in 0.5.5, so a branch inserted by some compiler/CPU
+    #     combination cannot be ruled out.
+    #   - Exploiting it needs a timing or microarchitectural observer on the
+    #     machine holding the signing key; nothing here exposes signing time
+    #     to a remote caller.
+    #
+    # Removal condition: delete the entry when alloy (with k256 and
+    # elliptic-curve 0.14) is adopted through a new evmlib / ant-core release
+    # and `cargo audit` is clean without it. Review by 2026-12-14 regardless.
+    "RUSTSEC-2026-0387",
 ]
