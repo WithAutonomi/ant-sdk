@@ -1,7 +1,7 @@
 """antd-mcp must import and serve against an antd SDK that predates
 ``PartialUploadError``.
 
-The dependency floor requires antd >= 0.3.0, but an install that bypasses it
+The dependency floor requires antd >= 0.4.0, but an install that bypasses it
 (e.g. --no-deps) can still pair the server with an older SDK, so the import
 guard stays and is tested here. Both packages live in this checkout, so the
 regular suite always runs head against head and cannot see an incompatible

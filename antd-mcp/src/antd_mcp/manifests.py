@@ -76,7 +76,7 @@ def _entry_input(i: int, raw: object) -> "ManifestEntryInput":
             raise
         # The installed antd SDK predates the sha256 field.
         raise BadRequestError(
-            f"entries[{i}]: sha256 needs an antd SDK that supports it (antd 0.17.0 or later)"
+            f"entries[{i}]: sha256 needs antd SDK 0.4.0 or later (and antd 0.17.0 or later on the daemon)"
         ) from None
 
 

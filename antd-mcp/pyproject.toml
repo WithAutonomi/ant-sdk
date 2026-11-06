@@ -28,17 +28,14 @@ classifiers = [
 dependencies = [
   "mcp>=2,<3",
   # The server uses the REST transport, so the `rest` extra (httpx) is required.
-  # antd 0.3.0 is the first SDK release with the pointer and manifest APIs,
-  # which the pointer and manifest tools call (0.2.0 brought
-  # `PartialUploadError` and `retention_known`, which the finalize tools
-  # report). server.py, manifests.py and errors.py still guard those imports,
-  # so an environment that bypasses the floor (e.g. --no-deps) starts and
-  # serves the other tools.
-  # antd 0.4.0 adds `sha256` to upload results and manifest entries, which the
-  # upload and manifest tools report; _fields.sha256_of reads it defensively,
-  # so 0.3.0 still works without it. The floor moves to 0.4.0 once 0.4.0 is
-  # on PyPI.
-  "antd[rest]>=0.3.0,<0.5",
+  # antd 0.4.0 is the first SDK release with `sha256` on upload results and
+  # manifest entries, which the upload and manifest tools report (0.3.0
+  # brought the pointer and manifest APIs, 0.2.0 `PartialUploadError` and
+  # `retention_known`). server.py, manifests.py, errors.py and
+  # _fields.sha256_of still guard those, so an environment that bypasses the
+  # floor (e.g. --no-deps) starts, serves the other tools and reports
+  # `sha256` as null.
+  "antd[rest]>=0.4.0,<0.5",
 ]
 
 [project.optional-dependencies]
