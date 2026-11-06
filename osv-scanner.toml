@@ -42,15 +42,14 @@ id = "RUSTSEC-2026-0369"
 ignoreUntil = 2026-12-14
 reason = "zip extract() permissions through symlinks; ant-core never calls extract(). V2-1903 / V2-1634."
 
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0429"
-ignoreUntil = 2026-12-14
-reason = "zip extract() symlink-size abort (alias GHSA-q7v9-x93c-xqv3); ant-core never calls extract(). V2-1903 / V2-1634."
+# osv-scanner reports RUSTSEC-2026-0429 under its alias GHSA-q7v9-x93c-xqv3,
+# so that one entry covers both (a RUSTSEC-2026-0429 entry is reported as
+# unused). cargo audit uses the RUSTSEC id.
 
 [[IgnoredVulns]]
 id = "GHSA-q7v9-x93c-xqv3"
 ignoreUntil = 2026-12-14
-reason = "Alias of RUSTSEC-2026-0429: zip extract() symlink-size abort; ant-core never calls extract(). V2-1903 / V2-1634."
+reason = "zip extract() symlink-size abort (alias RUSTSEC-2026-0429); ant-core never calls extract(). V2-1903 / V2-1634."
 
 [[IgnoredVulns]]
 id = "GHSA-8hxf-qr8p-62x4"
@@ -162,3 +161,26 @@ reason = "x/crypto/openpgp is unmaintained with no fix; antd-go does not import 
 id = "EEF-CVE-2026-43966"
 ignoreUntil = 2026-12-14
 reason = "cowlib advisory via gun (alias GHSA-w4f7-4cxr-rv3c); unreachable through antd-elixir's client path. V2-1637."
+
+# --- Elixir: cowboy 2.20.0 / cowlib 2.21.0 (published 2026-11-06) ------------
+# Both are memory-exhaustion advisories, fixed in git upstream but with no
+# Hex release yet (cowboy 2.20.0 and cowlib 2.21.0 are the latest). Replace
+# these entries with a mix.lock bump once the fixed releases ship. V2-1904.
+#   - EEF-CVE-2026-115701, cowboy HTTP/1.1 unbounded buffering of pipelined
+#     data: cowboy is a server and reaches antd-elixir only through the
+#     test-only deps bypass and grpc_server (`only: :test`). Not shipped.
+#   - EEF-CVE-2026-113431, cowlib HTTP/2 decoded header-list size (HPACK
+#     amplification): cowlib is a runtime dep through gun, the gRPC client.
+#     The attacker is the HTTP/2 peer, i.e. the antd daemon the client is
+#     pointed at, so it takes a malicious or compromised daemon to exhaust
+#     the client's memory. Reduced, not zero, exposure.
+
+[[IgnoredVulns]]
+id = "EEF-CVE-2026-115701"
+ignoreUntil = 2026-12-14
+reason = "cowboy HTTP/1.1 pipelined-buffer exhaustion; reached only via test-only bypass/grpc_server; no fixed Hex release yet. V2-1904."
+
+[[IgnoredVulns]]
+id = "EEF-CVE-2026-113431"
+ignoreUntil = 2026-12-14
+reason = "cowlib HTTP/2 header-list HPACK amplification via gun; peer is the user's own antd daemon; no fixed Hex release yet. V2-1904."
