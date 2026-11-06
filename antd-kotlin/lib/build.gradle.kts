@@ -21,6 +21,17 @@ dependencies {
     implementation("io.grpc:grpc-netty-shaded:1.85.1")
     implementation("com.google.protobuf:protobuf-kotlin:4.28.3")
 
+    // grpc-java 1.85.1 (the latest release) still pulls guava 33.6.0-android,
+    // which is affected by GHSA-xxph-c9ww-hj94 (fixed in 33.7.2). A constraint
+    // raises only the floor, so it also reaches consumers of the published
+    // artifact (Gradle module metadata). Drop it once grpc-java depends on
+    // guava >= 33.7.2.
+    constraints {
+        implementation("com.google.guava:guava:33.7.2-android") {
+            because("GHSA-xxph-c9ww-hj94: guava <= 33.7.1 unbounded allocation on deserialization")
+        }
+    }
+
     // Testing
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
