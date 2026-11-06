@@ -22,10 +22,11 @@ dependencies {
     implementation("com.google.protobuf:protobuf-kotlin:4.28.3")
 
     // grpc-java 1.85.1 (the latest release) still pulls guava 33.6.0-android,
-    // which is affected by GHSA-xxph-c9ww-hj94 (fixed in 33.7.2). A constraint
-    // raises only the floor, so it also reaches consumers of the published
-    // artifact (Gradle module metadata). Drop it once grpc-java depends on
-    // guava >= 33.7.2.
+    // which is affected by GHSA-xxph-c9ww-hj94 (fixed in 33.7.2). antd-kotlin
+    // publishes no Maven artifact, so a constraint is enough here: it raises
+    // the version this build and its tests resolve. (antd-java, which does
+    // publish a POM, uses a direct dependency instead.) Drop it once grpc-java
+    // depends on guava >= 33.7.2.
     constraints {
         implementation("com.google.guava:guava:33.7.2-android") {
             because("GHSA-xxph-c9ww-hj94: guava <= 33.7.1 unbounded allocation on deserialization")

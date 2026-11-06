@@ -34,15 +34,14 @@ dependencies {
     implementation("com.google.protobuf:protobuf-java:$protocVersion")
 
     // grpc-java 1.85.1 (the latest release) still pulls guava 33.6.0-android,
-    // which is affected by GHSA-xxph-c9ww-hj94 (fixed in 33.7.2). A constraint
-    // raises only the floor, so it also reaches consumers of the published
-    // artifact (Gradle module metadata). Drop it once grpc-java depends on
+    // which is affected by GHSA-xxph-c9ww-hj94 (fixed in 33.7.2). This is a
+    // direct dependency, not a Gradle `constraints {}` entry, because constraints
+    // reach only Gradle consumers (module metadata): the published Maven POM
+    // cannot express them. As a direct dependency it is in the POM, and Maven's
+    // nearest-wins mediation picks it over grpc's deeper transitive guava; Gradle
+    // picks the highest version. Drop it once grpc-java depends on
     // guava >= 33.7.2.
-    constraints {
-        implementation("com.google.guava:guava:33.7.2-android") {
-            because("GHSA-xxph-c9ww-hj94: guava <= 33.7.1 unbounded allocation on deserialization")
-        }
-    }
+    implementation("com.google.guava:guava:33.7.2-android")
 
     compileOnly("org.apache.tomcat:annotations-api:6.0.53") // javax.annotation for generated code
 
