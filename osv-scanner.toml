@@ -10,8 +10,12 @@
 # antd/, antd-rust/, ffi/rust/ and ffi/node/ .cargo/audit.toml.
 
 # --- zip 2.4.2 (transitive: ant-core -> zip) --------------------------------
-# Left only in ffi/rust and ffi/node, whose ant-core 0.8.1 (ant-cli-v0.3.6)
-# requires zip 2; antd is on ant-core 0.15.0 (zip 9). ant-core only uses zip in
+# zip 2 is now resolved only in ffi/rust and ffi/node, whose ant-core 0.8.1
+# (ant-cli-v0.3.6) requires it; antd is on ant-core 0.15.0 (zip 9). Note the
+# entries below are ID-only, as osv-scanner ignores are: they apply to every
+# lockfile this config scans, not just the FFI ones, so a new zip 2 copy
+# anywhere else would also be hidden until the ignoreUntil date. They go
+# entirely with the FFI repin (#418, V2-1903). ant-core only uses zip in
 # node::binary::extract_zip, which opens a ZipArchive, walks entries with
 # by_index, filters with enclosed_name() and copies one named, unencrypted
 # file itself. The SDKs never call ant_core::node or ant_core::update at all.
