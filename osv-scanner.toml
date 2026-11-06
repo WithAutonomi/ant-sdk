@@ -7,30 +7,60 @@
 #     again and the audit fails, which forces a re-review.
 #
 # Rust ignores here must agree with the cargo-audit ignores in
-# antd/, ffi/rust/ and ffi/node/ .cargo/audit.toml.
+# antd/, antd-rust/, ffi/rust/ and ffi/node/ .cargo/audit.toml.
 
 # --- zip 2.4.2 (transitive: ant-core -> zip) --------------------------------
-# All three affect only ZipArchive::extract() / ZipStreamReader::extract().
-# ant-core's node::binary::extract_zip walks entries with by_index and copies
-# one named file itself; it never calls extract(), and the SDKs never call
-# ant_core::node at all. Same reasoning and date as the cargo-audit ignores
-# from #372. Remove when ant-core is repinned to a release with zip >= 9
-# (V2-1634; upstream ant-client#233 / V2-1632).
+# ant-core 0.8.1 (ffi/rust, ffi/node; ant-cli-v0.3.6) and 0.14.0 (antd;
+# ant-cli-v0.3.12) require zip 2. ant-core only uses zip in
+# node::binary::extract_zip, which opens a ZipArchive, walks entries with
+# by_index, filters with enclosed_name() and copies one named, unencrypted
+# file itself. The SDKs never call ant_core::node or ant_core::update at all.
+#   - RUSTSEC-2026-0367/-0368/-0369, RUSTSEC-2026-0429 (= GHSA-q7v9-x93c-xqv3):
+#     ZipArchive::extract() only, which ant-core never calls.
+#   - GHSA-8hxf-qr8p-62x4: AES (AE-x) entry HMAC bypass; ant-core never opens
+#     encrypted entries.
+#   - GHSA-m665-v7pm-7grj (CVSS 10): a parser differential between ZipArchive
+#     (central directory) and ZipStreamReader (local headers); it needs one
+#     reader to validate and the other to extract. ant-core uses ZipArchive
+#     only, and the SDKs never reach it.
+# Matches the cargo-audit ignores (cargo audit reports only the RUSTSEC ids).
+# Remove when antd and the FFI are repinned to ant-cli-v0.3.13 or later, whose
+# ant-core requires zip 9 (antd: ant-core 0.15 repin; FFI: V2-1903; then
+# V2-1634).
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0367"
-ignoreUntil = 2026-11-16
-reason = "zip extract() SUID/SGID preservation; ant-core never calls extract(). V2-1634."
+ignoreUntil = 2026-12-14
+reason = "zip extract() SUID/SGID preservation; ant-core never calls extract(). V2-1903 / V2-1634."
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0368"
-ignoreUntil = 2026-11-16
-reason = "zip extract() symlink escape; ant-core never calls extract(). V2-1634."
+ignoreUntil = 2026-12-14
+reason = "zip extract() symlink escape; ant-core never calls extract(). V2-1903 / V2-1634."
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0369"
-ignoreUntil = 2026-11-16
-reason = "zip extract() permissions through symlinks; ant-core never calls extract(). V2-1634."
+ignoreUntil = 2026-12-14
+reason = "zip extract() permissions through symlinks; ant-core never calls extract(). V2-1903 / V2-1634."
+
+# osv-scanner reports RUSTSEC-2026-0429 under its alias GHSA-q7v9-x93c-xqv3,
+# so that one entry covers both (a RUSTSEC-2026-0429 entry is reported as
+# unused). cargo audit uses the RUSTSEC id.
+
+[[IgnoredVulns]]
+id = "GHSA-q7v9-x93c-xqv3"
+ignoreUntil = 2026-12-14
+reason = "zip extract() symlink-size abort (alias RUSTSEC-2026-0429); ant-core never calls extract(). V2-1903 / V2-1634."
+
+[[IgnoredVulns]]
+id = "GHSA-8hxf-qr8p-62x4"
+ignoreUntil = 2026-12-14
+reason = "zip AES entry HMAC bypass; ant-core never opens encrypted entries and the SDKs never call ant_core::node. V2-1903 / V2-1634."
+
+[[IgnoredVulns]]
+id = "GHSA-m665-v7pm-7grj"
+ignoreUntil = 2026-12-14
+reason = "zip ZipArchive/ZipStreamReader parser differential; ant-core uses ZipArchive only, in node::binary, which the SDKs never call. V2-1903 / V2-1634."
 
 # --- lru 0.16 (transitive: evmlib -> alloy -> alloy-provider -> lru) --------
 # Unsound LruCache::pop() under a panicking closure. The fix is lru 0.18, a
@@ -40,6 +70,25 @@ reason = "zip extract() permissions through symlinks; ant-core never calls extra
 id = "RUSTSEC-2026-0253"
 ignoreUntil = 2027-01-18
 reason = "lru 0.16 unsound pop(); fix needs lru 0.18 via an alloy-provider upgrade upstream. V2-1582."
+
+# --- crypto-bigint 0.5.5 (transitive: evmlib -> alloy -> alloy-signer -> k256 0.13) ---
+# Timing-variability advisory, fixed only in crypto-bigint >= 0.7.6 (no 0.5/0.6
+# backport). alloy up to 2.5.0 still requires k256/elliptic-curve ^0.13, so
+# nothing here can resolve to 0.7. Most of the named operations (UintRef,
+# BoxedMontyForm, division, Montgomery, zero counting) are absent from 0.5.5 or
+# unused by k256, and the subtraction leak came from a 0.7-era workaround, but
+# k256 signing does run U256 sbb/add_mod/sub_mod on secret scalars, so exposure
+# is reduced, not zero: it takes a local timing observer next to the wallet key
+# (antd AUTONOMI_WALLET_KEY, ffi private_key). antd-rust has it as a
+# dev-dependency only. Remove when alloy adopts k256/elliptic-curve 0.14 and
+# evmlib/ant-core are repinned. Upstream: alloy-rs/alloy#4445,
+# alloy-rs/core#1147. Matches the cargo-audit ignores in antd/, antd-rust/,
+# ffi/rust/, ffi/node/.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0387"
+ignoreUntil = 2026-12-14
+reason = "crypto-bigint 0.5.5 timing variability; fix only in 0.7.6+, blocked on alloy moving to k256 0.14 (alloy-rs/alloy#4445); reduced exposure, local timing observer only."
 
 # --- RustSec "unmaintained" notices -----------------------------------------
 # Informational, not vulnerabilities: cargo audit reports them as warnings and
@@ -66,6 +115,11 @@ reason = "derivative unmaintained (informational); transitive. V2-1582."
 id = "RUSTSEC-2024-0436"
 ignoreUntil = 2027-01-18
 reason = "paste unmaintained (informational); transitive. V2-1582."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0441"
+ignoreUntil = 2027-01-18
+reason = "pin-utils unmaintained (informational, no patched version); transitive via wasmtimer -> alloy-provider. V2-1582."
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0173"
@@ -108,3 +162,26 @@ reason = "x/crypto/openpgp is unmaintained with no fix; antd-go does not import 
 id = "EEF-CVE-2026-43966"
 ignoreUntil = 2026-12-14
 reason = "cowlib advisory via gun (alias GHSA-w4f7-4cxr-rv3c); unreachable through antd-elixir's client path. V2-1637."
+
+# --- Elixir: cowboy 2.20.0 / cowlib 2.21.0 (published 2026-11-06) ------------
+# Both are memory-exhaustion advisories, fixed in git upstream but with no
+# Hex release yet (cowboy 2.20.0 and cowlib 2.21.0 are the latest). Replace
+# these entries with a mix.lock bump once the fixed releases ship. V2-1904.
+#   - EEF-CVE-2026-115701, cowboy HTTP/1.1 unbounded buffering of pipelined
+#     data: cowboy is a server and reaches antd-elixir only through the
+#     test-only deps bypass and grpc_server (`only: :test`). Not shipped.
+#   - EEF-CVE-2026-113431, cowlib HTTP/2 decoded header-list size (HPACK
+#     amplification): cowlib is a runtime dep through gun, the gRPC client.
+#     The attacker is the HTTP/2 peer, i.e. the antd daemon the client is
+#     pointed at, so it takes a malicious or compromised daemon to exhaust
+#     the client's memory. Reduced, not zero, exposure.
+
+[[IgnoredVulns]]
+id = "EEF-CVE-2026-115701"
+ignoreUntil = 2026-12-14
+reason = "cowboy HTTP/1.1 pipelined-buffer exhaustion; reached only via test-only bypass/grpc_server; no fixed Hex release yet. V2-1904."
+
+[[IgnoredVulns]]
+id = "EEF-CVE-2026-113431"
+ignoreUntil = 2026-12-14
+reason = "cowlib HTTP/2 header-list HPACK amplification via gun; peer is the user's own antd daemon; no fixed Hex release yet. V2-1904."

@@ -1,0 +1,27 @@
+# cargo-audit configuration for antd-rust (read by `cargo audit` run from this directory).
+#
+# Every entry below is a reasoned, time-boxed ignore. Do not add an ignore
+# without the advisory link, why the vulnerable path is unreachable, and a
+# removal condition.
+
+[advisories]
+ignore = [
+    # crypto-bigint 0.5.5 (dev-dependency only: alloy "full" -> alloy-signer /
+    # k256 0.13 / elliptic-curve 0.13 -> crypto-bigint 0.5). RUSTSEC-2026-0387,
+    # "Multiple timing variability issues in operations intended to be
+    # constant-time":
+    #   https://rustsec.org/advisories/RUSTSEC-2026-0387
+    #   https://github.com/RustCrypto/crypto-bigint/pull/1365
+    # Patched only in crypto-bigint >= 0.7.6; there is no 0.5.x or 0.6.x
+    # backport, and every alloy release up to 2.5.0 still requires k256 ^0.13
+    # (alloy-rs/alloy#4445, alloy-rs/core#1147).
+    #
+    # Why accepted: alloy is a [dev-dependencies] entry used only by tests and
+    # examples. It is not compiled into the antd-client library, which never
+    # holds a signing key (payments are made by antd).
+    #
+    # Removal condition: delete the entry when alloy moves to k256 /
+    # elliptic-curve 0.14 and the dev-dependency is bumped. Review by
+    # 2026-12-14 regardless.
+    "RUSTSEC-2026-0387",
+]
