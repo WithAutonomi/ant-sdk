@@ -10,8 +10,12 @@
 # antd/, antd-rust/, ffi/rust/ and ffi/node/ .cargo/audit.toml.
 
 # --- zip 2.4.2 (transitive: ant-core -> zip) --------------------------------
-# ant-core 0.8.1 (ffi/rust, ffi/node; ant-cli-v0.3.6) and 0.14.0 (antd;
-# ant-cli-v0.3.12) require zip 2. ant-core only uses zip in
+# zip 2 is now resolved only in ffi/rust and ffi/node, whose ant-core 0.8.1
+# (ant-cli-v0.3.6) requires it; antd is on ant-core 0.15.0 (zip 9). Note the
+# entries below are ID-only, as osv-scanner ignores are: they apply to every
+# lockfile this config scans, not just the FFI ones, so a new zip 2 copy
+# anywhere else would also be hidden until the ignoreUntil date. They go
+# entirely with the FFI repin (#418, V2-1903). ant-core only uses zip in
 # node::binary::extract_zip, which opens a ZipArchive, walks entries with
 # by_index, filters with enclosed_name() and copies one named, unencrypted
 # file itself. The SDKs never call ant_core::node or ant_core::update at all.
@@ -24,9 +28,8 @@
 #     reader to validate and the other to extract. ant-core uses ZipArchive
 #     only, and the SDKs never reach it.
 # Matches the cargo-audit ignores (cargo audit reports only the RUSTSEC ids).
-# Remove when antd and the FFI are repinned to ant-cli-v0.3.13 or later, whose
-# ant-core requires zip 9 (antd: ant-core 0.15 repin; FFI: V2-1903; then
-# V2-1634).
+# Remove when the FFI is repinned to ant-cli-v0.3.13 or later, whose ant-core
+# requires zip 9 (V2-1903, then V2-1634).
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0367"
