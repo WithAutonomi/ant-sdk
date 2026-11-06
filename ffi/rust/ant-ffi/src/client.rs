@@ -27,40 +27,24 @@ use crate::{
     ProgressListener, ProgressPhase, ProgressUpdate, TxRequest, Visibility,
 };
 
-/// Mainnet bootstrap peers vendored from ant-client's
-/// `resources/bootstrap_peers.toml` at the pinned ant-core tag, so the
-/// `connect_default*` constructors can reach the production network with zero
-/// configuration — the same last-resort pattern as antd's compiled-in copy.
-/// Re-copy from the pinned checkout whenever the ant-core pin is bumped.
-const COMPILED_IN_BOOTSTRAP_PEERS_TOML: &str = include_str!("../resources/bootstrap_peers.toml");
-
-#[derive(serde::Deserialize)]
-struct BootstrapConfig {
-    peers: Vec<String>,
-}
-
-/// Parse the vendored peer list ("ip:port" socket addresses) into the
-/// `/ip4/<ip>/udp/<port>/quic` multiaddr strings [`Client::connect`] expects.
-/// Errors instead of silently returning an empty list — a malformed vendored
-/// file is a build-time regression, not a runtime condition.
+/// The mainnet bootstrap seeds bundled into the pinned ant-core (the same
+/// resource the `ant` CLI ships and antd uses as its last-resort fallback), as
+/// the QUIC multiaddr strings [`Client::connect`] expects. This is what lets
+/// the `connect_default*` constructors reach the production network with zero
+/// configuration. They move with the ant-core pin, so there is no vendored copy
+/// to keep in sync. Errors instead of returning an empty list: an unparseable
+/// or empty bundled resource is an upstream build regression, not a runtime
+/// condition.
 fn default_bootstrap_peer_strings() -> Result<Vec<String>, ClientError> {
-    let cfg: BootstrapConfig = toml::from_str(COMPILED_IN_BOOTSTRAP_PEERS_TOML).map_err(|e| {
+    let seeds = ant_core::network_defaults::bundled_bootstrap_seeds().map_err(|e| {
         ClientError::InternalError {
-            reason: format!("vendored bootstrap_peers.toml is malformed: {e}"),
+            reason: format!("ant-core's bundled bootstrap seeds failed to parse: {e}"),
         }
     })?;
-    let peers: Vec<String> = cfg
-        .peers
-        .iter()
-        .filter_map(|s| s.parse::<std::net::SocketAddr>().ok())
-        .map(|sa| {
-            let ip_tag = if sa.is_ipv4() { "ip4" } else { "ip6" };
-            format!("/{}/{}/udp/{}/quic", ip_tag, sa.ip(), sa.port())
-        })
-        .collect();
+    let peers: Vec<String> = seeds.quic.iter().map(|m| m.to_string()).collect();
     if peers.is_empty() {
         return Err(ClientError::InternalError {
-            reason: "vendored bootstrap_peers.toml contains no usable peers".into(),
+            reason: "ant-core's bundled bootstrap seeds contain no QUIC peers".into(),
         });
     }
     Ok(peers)
@@ -309,7 +293,7 @@ impl Client {
     }
 
     /// Connect to the Autonomi **production network** using the bootstrap
-    /// peers vendored into the SDK — no configuration needed. Read-only
+    /// seeds bundled into ant-core — no configuration needed. Read-only
     /// client; for uploads use [`Self::connect_default_with_wallet`] or
     /// [`Self::connect_default_for_external_signer`].
     ///
@@ -1618,9 +1602,15 @@ mod tests {
     #[test]
     fn default_bootstrap_peers_are_valid_multiaddrs() {
         let peers = default_bootstrap_peer_strings().unwrap();
-        assert_eq!(peers.len(), 7, "vendored mainnet peer count");
+        assert!(
+            !peers.is_empty(),
+            "ant-core bundles at least one mainnet seed"
+        );
         for p in &peers {
-            assert!(p.starts_with("/ip4/") && p.ends_with("/quic"), "shape: {p}");
+            assert!(
+                (p.starts_with("/ip4/") || p.starts_with("/ip6/")) && p.contains("/udp/"),
+                "shape: {p}"
+            );
             assert!(p.parse::<MultiAddr>().is_ok(), "unparseable multiaddr: {p}");
         }
     }

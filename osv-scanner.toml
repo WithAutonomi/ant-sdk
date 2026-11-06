@@ -9,62 +9,6 @@
 # Rust ignores here must agree with the cargo-audit ignores in
 # antd/, antd-rust/, ffi/rust/ and ffi/node/ .cargo/audit.toml.
 
-# --- zip 2.4.2 (transitive: ant-core -> zip) --------------------------------
-# zip 2 is now resolved only in ffi/rust and ffi/node, whose ant-core 0.8.1
-# (ant-cli-v0.3.6) requires it; antd is on ant-core 0.15.0 (zip 9). Note the
-# entries below are ID-only, as osv-scanner ignores are: they apply to every
-# lockfile this config scans, not just the FFI ones, so a new zip 2 copy
-# anywhere else would also be hidden until the ignoreUntil date. They go
-# entirely with the FFI repin (#418, V2-1903). ant-core only uses zip in
-# node::binary::extract_zip, which opens a ZipArchive, walks entries with
-# by_index, filters with enclosed_name() and copies one named, unencrypted
-# file itself. The SDKs never call ant_core::node or ant_core::update at all.
-#   - RUSTSEC-2026-0367/-0368/-0369, RUSTSEC-2026-0429 (= GHSA-q7v9-x93c-xqv3):
-#     ZipArchive::extract() only, which ant-core never calls.
-#   - GHSA-8hxf-qr8p-62x4: AES (AE-x) entry HMAC bypass; ant-core never opens
-#     encrypted entries.
-#   - GHSA-m665-v7pm-7grj (CVSS 10): a parser differential between ZipArchive
-#     (central directory) and ZipStreamReader (local headers); it needs one
-#     reader to validate and the other to extract. ant-core uses ZipArchive
-#     only, and the SDKs never reach it.
-# Matches the cargo-audit ignores (cargo audit reports only the RUSTSEC ids).
-# Remove when the FFI is repinned to ant-cli-v0.3.13 or later, whose ant-core
-# requires zip 9 (V2-1903, then V2-1634).
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0367"
-ignoreUntil = 2026-12-14
-reason = "zip extract() SUID/SGID preservation; ant-core never calls extract(). V2-1903 / V2-1634."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0368"
-ignoreUntil = 2026-12-14
-reason = "zip extract() symlink escape; ant-core never calls extract(). V2-1903 / V2-1634."
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0369"
-ignoreUntil = 2026-12-14
-reason = "zip extract() permissions through symlinks; ant-core never calls extract(). V2-1903 / V2-1634."
-
-# osv-scanner reports RUSTSEC-2026-0429 under its alias GHSA-q7v9-x93c-xqv3,
-# so that one entry covers both (a RUSTSEC-2026-0429 entry is reported as
-# unused). cargo audit uses the RUSTSEC id.
-
-[[IgnoredVulns]]
-id = "GHSA-q7v9-x93c-xqv3"
-ignoreUntil = 2026-12-14
-reason = "zip extract() symlink-size abort (alias RUSTSEC-2026-0429); ant-core never calls extract(). V2-1903 / V2-1634."
-
-[[IgnoredVulns]]
-id = "GHSA-8hxf-qr8p-62x4"
-ignoreUntil = 2026-12-14
-reason = "zip AES entry HMAC bypass; ant-core never opens encrypted entries and the SDKs never call ant_core::node. V2-1903 / V2-1634."
-
-[[IgnoredVulns]]
-id = "GHSA-m665-v7pm-7grj"
-ignoreUntil = 2026-12-14
-reason = "zip ZipArchive/ZipStreamReader parser differential; ant-core uses ZipArchive only, in node::binary, which the SDKs never call. V2-1903 / V2-1634."
-
 # --- lru 0.16 (transitive: evmlib -> alloy -> alloy-provider -> lru) --------
 # Unsound LruCache::pop() under a panicking closure. The fix is lru 0.18, a
 # semver-major bump that has to come from alloy-provider upstream.

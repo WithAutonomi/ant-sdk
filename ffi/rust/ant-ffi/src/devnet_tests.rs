@@ -9,6 +9,10 @@
 //!   cargo test -p ant-ffi --locked -- --ignored devnet
 //! ```
 //!
+//! `devnet_wallet_large_round_trip` covers the wallet-backed path with payloads
+//! well over the 1 MiB transport default (V2-511): a 5 MB public data upload and
+//! a 20 MB private file upload, both downloaded and compared byte for byte.
+//!
 //! A forced mid-finalize store shortfall is not reproducible on a healthy
 //! devnet, so the `Partial → retained → resume` transition is covered by the
 //! offline `session` unit tests; this test proves the `Prepared → Complete`
@@ -20,7 +24,7 @@ use ant_core::data::{DevnetManifest, EvmAddress, Wallet as CoreWallet};
 use ant_protocol::evm::{Amount, QuoteHash};
 
 use crate::wallet::build_custom_network;
-use crate::{Client, ClientError, PaymentType, Visibility};
+use crate::{Client, ClientError, PaymentMode, PaymentType, Visibility};
 
 /// Deterministic pseudo-random payload: incompressible enough to self-encrypt
 /// into several fresh chunks, stable across runs (so a re-run hits the
@@ -176,4 +180,50 @@ async fn devnet_external_signer_wave_round_trip() {
         .await
         .expect("download by data map");
     assert_eq!(back, data, "round-tripped bytes differ");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a running ant-devnet; set ANT_FFI_DEVNET_MANIFEST"]
+async fn devnet_wallet_large_round_trip() {
+    let Ok(manifest_path) = std::env::var("ANT_FFI_DEVNET_MANIFEST") else {
+        eprintln!("ANT_FFI_DEVNET_MANIFEST not set; skipping");
+        return;
+    };
+    let client = Client::connect_from_devnet_manifest(manifest_path, None)
+        .await
+        .expect("connect wallet client to devnet");
+    client.wallet_approve().await.expect("approve token spend");
+
+    // Public data, 5 MB: several chunks of up to 4 MiB, so every chunk GET
+    // needs the raised max_message_size.
+    let data = payload(5_000_000, 0x5eed_0150);
+    let put = client
+        .data_put_public(data.clone(), PaymentMode::Auto)
+        .await
+        .expect("data_put_public");
+    let back = client
+        .data_get_public(put.address.clone())
+        .await
+        .expect("data_get_public");
+    assert_eq!(back, data, "public data round trip differs");
+
+    // Private file, 20 MB, through the on-disk upload and download paths.
+    let dir = std::env::temp_dir().join(format!("ant-ffi-devnet-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let src = dir.join("in.bin");
+    let dst = dir.join("out.bin");
+    let file = payload(20_000_000, 0xf11e_0150);
+    std::fs::write(&src, &file).expect("write source file");
+    let up = client
+        .file_upload_private(src.to_string_lossy().into_owned(), PaymentMode::Auto)
+        .await
+        .expect("file_upload_private");
+    client
+        .file_download_private(up.data_map.clone(), dst.to_string_lossy().into_owned())
+        .await
+        .expect("file_download_private");
+    let got = std::fs::read(&dst).expect("read downloaded file");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(got.len(), file.len(), "private file length differs");
+    assert!(got == file, "private file round trip differs");
 }
